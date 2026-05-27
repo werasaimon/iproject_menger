@@ -1,5 +1,28 @@
 #!/usr/bin/env bash
-# (Re)start the iProject Manager server. Run via run_in_background.
-fuser -k 8078/tcp 2>/dev/null
-sleep 1
-exec python3 /home/wera_n/GIT/iproject_menger/server.py
+# Launch the iProject Manager on this PC: the web server + a paired Claude session.
+#   bin/serve            (start) -> ensure the server is up, then open Claude here (paired)
+#   bin/serve stop               -> stop the web server
+#   bin/serve status             -> server status
+SVC=iproject-menger.service
+DIR=/home/wera_n/GIT/iproject_menger
+case "${1:-start}" in
+  stop)
+    systemctl --user stop "$SVC" 2>/dev/null || fuser -k 8078/tcp 2>/dev/null
+    echo "■ server stopped" ;;
+  status)
+    systemctl --user --no-pager status "$SVC" ;;
+  start)
+    systemctl --user start "$SVC" 2>/dev/null
+    sleep 1
+    if curl -s -m2 http://localhost:8078/status >/dev/null; then
+      echo "▶ server: http://localhost:8078/  (LAN: http://$(hostname -I | awk '{print $1}'):8078/)"
+    else
+      echo "systemd unit unavailable — launching server directly…"
+      (cd "$DIR" && setsid python3 server.py >/dev/null 2>&1 &) ; sleep 1
+    fi
+    echo "↪ opening Claude (paired) — talk to me here or from the site"
+    cd "$DIR"
+    exec claude "Старт пара-сессии на этом ПК. Сначала запусти bin/ctx, чтобы поднять контекст и нашу память. Потом спроси меня, входим ли в пара-петлю (bin/watch в фоне → сообщения с сайта; ответ через bin/say, шаги через bin/step). Мы — коллеги." ;;
+  *)
+    echo "usage: bin/serve {start|stop|status}"; exit 1 ;;
+esac

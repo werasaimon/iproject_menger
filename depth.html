@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Depth Entropy Monitor</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;
+      --acc:#58a6ff;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--vio:#bc8cff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:13px/1.5 system-ui,sans-serif;padding:12px}
+h2{font-size:15px;color:var(--acc);margin:10px 0 6px}
+.kpi{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.kpi .k{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+         padding:8px 14px;min-width:90px;text-align:center}
+.kpi .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:10px;color:var(--mut);margin-top:2px}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;flex:1;min-width:280px}
+canvas{display:block;width:100%;image-rendering:pixelated}
+.heatmap{display:grid;gap:2px;width:100%;aspect-ratio:12/9}
+.cell{border-radius:2px;display:flex;align-items:center;justify-content:center;
+      font-size:9px;color:rgba(255,255,255,.5)}
+.status{font-size:11px;color:var(--mut);margin-bottom:8px}
+button{background:#1f6feb;color:#fff;border:0;border-radius:6px;padding:5px 12px;
+       cursor:pointer;font-size:12px}
+button.stop{background:#b62324}
+a{color:var(--acc);text-decoration:none}
+</style>
+</head><body>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+  <a href="/">← проекты</a>
+  <span style="color:var(--acc);font-size:16px;font-weight:700">🔬 Depth Entropy Monitor</span>
+  <span id="status" class="status">подключаюсь…</span>
+  <button id="recbtn" onclick="toggleRec()">⏺ запись</button>
+</div>
+
+<div class="kpi" id="kpi">
+  <div class="k"><div class="v" id="v-std">—</div><div class="l">std, px (джиттер)</div></div>
+  <div class="k"><div class="v" id="v-entropy">—</div><div class="l">H (энтропия шума)</div></div>
+  <div class="k"><div class="v" id="v-zmean">—</div><div class="l">Z mean, м</div></div>
+  <div class="k"><div class="v" id="v-fill">—</div><div class="l">fill rate %</div></div>
+  <div class="k"><div class="v" id="v-pts">—</div><div class="l">точек</div></div>
+  <div class="k"><div class="v" id="v-worst">—</div><div class="l">worst cell std</div></div>
+</div>
+
+<div class="row">
+  <div class="card" style="flex:0 0 auto;width:300px">
+    <h2>🗺 карта шума (STD px по регионам)</h2>
+    <div id="heatmap" class="heatmap" style="grid-template-columns:repeat(12,1fr)"></div>
+    <div style="margin-top:6px;font-size:10px;color:var(--mut)">
+      зелёный = тихо · красный = высокий джиттер (max ~40px)
+    </div>
+  </div>
+  <div class="card">
+    <h2>📈 std px · H энтропия · Z mean — история</h2>
+    <canvas id="chart" height="180"></canvas>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h2>🌊 распределение шума по ячейкам (гистограмма)</h2>
+    <canvas id="hist" height="120"></canvas>
+  </div>
+  <div class="card">
+    <h2>📡 fill rate % · точек</h2>
+    <canvas id="chart2" height="120"></canvas>
+  </div>
+</div>
+
+<div style="margin-top:8px;font-size:11px;color:var(--mut)">
+  Данные сохраняются в <code>data/depth_metrics.jsonl</code> · порт стрима:
+  <input id="port" value="8080" style="width:50px;background:#0f1420;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:2px 4px;font-size:11px">
+</div>
+
+<script>
+const MAX = 120;
+let buf = [], recording = true, timer = null;
+const port = () => document.getElementById('port').value || '8080';
+
+function toggleRec(){
+  recording = !recording;
+  document.getElementById('recbtn').textContent = recording ? '⏸ пауза' : '⏺ запись';
+  document.getElementById('recbtn').className = recording ? 'stop' : '';
+}
+
+function noiseColor(v, max=40){
+  const t = Math.min(v / max, 1);
+  const r = Math.round(t > 0.5 ? 255 : t * 2 * 255);
+  const g = Math.round(t < 0.5 ? 255 : (1 - t) * 2 * 255);
+  return `rgb(${r},${g},30)`;
+}
+
+function updateHeatmap(cells){
+  const el = document.getElementById('heatmap');
+  const flat = cells.flat();
+  if(el.children.length !== flat.length){
+    el.innerHTML = flat.map((_,i)=>`<div class="cell" id="c${i}"></div>`).join('');
+  }
+  flat.forEach((v,i)=>{
+    const d = document.getElementById('c'+i);
+    if(d){ d.style.background = noiseColor(v); d.title = v.toFixed(2); }
+  });
+}
+
+function drawChart(canvas, datasets, labels, ylabels){
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+  const H = canvas.height = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#0f1420';
+  ctx.fillRect(0,0,W,H);
+  if(!buf.length) return;
+  const pad = {l:38,r:8,t:8,b:18};
+  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+  // grid
+  ctx.strokeStyle = '#1f2630'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y = pad.t + ch * i/4;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(pad.l+cw,y); ctx.stroke();
+  }
+  datasets.forEach(({data, color, label}, di)=>{
+    const vals = data.slice(-MAX);
+    const valid = vals.filter(v=>v!=null && isFinite(v));
+    if(!valid.length) return;
+    const mn = Math.min(...valid), mx = Math.max(...valid) || 1;
+    const sy = v => pad.t + ch - ch * (v - mn) / (mx - mn || 1);
+    const sx = i => pad.l + cw * i / (vals.length - 1 || 1);
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    vals.forEach((v,i)=>{ if(v==null||!isFinite(v)) return; i===0||vals[i-1]==null ? ctx.moveTo(sx(i),sy(v)) : ctx.lineTo(sx(i),sy(v)); });
+    ctx.stroke();
+    // label + last value
+    ctx.fillStyle = color; ctx.font = `${10*window.devicePixelRatio}px system-ui`;
+    const last = vals.filter(v=>v!=null).at(-1);
+    if(last!=null) ctx.fillText(`${label}: ${last.toFixed(2)}`, pad.l+4 + di*80*window.devicePixelRatio, pad.t+12*window.devicePixelRatio*(di+1));
+    // y axis ticks
+    ctx.fillStyle = '#8b949e'; ctx.font = `${9*window.devicePixelRatio}px system-ui`;
+    [mn, (mn+mx)/2, mx].forEach(v=>{ ctx.fillText(v.toFixed(1), 0, sy(v)+4); });
+  });
+  // x axis time
+  ctx.fillStyle='#8b949e'; ctx.font=`${9*window.devicePixelRatio}px system-ui`;
+  if(buf.length>1){
+    const t0 = buf[Math.max(0,buf.length-MAX)].ts;
+    const t1 = buf.at(-1).ts;
+    ctx.fillText(`-${(t1-t0).toFixed(0)}s`, pad.l, H-2);
+    ctx.fillText('now', W-24, H-2);
+  }
+}
+
+function drawHist(canvas, cells){
+  const flat = cells.flat();
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+  const H = canvas.height = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0f1420'; ctx.fillRect(0,0,W,H);
+  const bins = 20, maxV = 42;
+  const counts = new Array(bins).fill(0);
+  flat.forEach(v=>{ const b = Math.min(Math.floor(v/maxV*bins), bins-1); counts[b]++; });
+  const mc = Math.max(...counts, 1);
+  const bw = W/bins;
+  counts.forEach((c,i)=>{
+    const t = i/bins;
+    const r = Math.round(t > 0.5 ? 255 : t*2*255);
+    const g = Math.round(t < 0.5 ? 255 : (1-t)*2*255);
+    ctx.fillStyle = `rgb(${r},${g},30)`;
+    const bh = c/mc*(H-16);
+    ctx.fillRect(i*bw+1, H-16-bh, bw-2, bh);
+  });
+  ctx.fillStyle='#8b949e'; ctx.font=`${9*window.devicePixelRatio}px system-ui`;
+  ctx.fillText('0px', 0, H-2);
+  ctx.fillText('42px', W-24, H-2);
+}
+
+async function tick(){
+  try{
+    const r = await fetch(`/api/depth?port=${port()}`, {cache:'no-store'});
+    if(!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    if(d.error) throw new Error(d.error);
+    document.getElementById('status').textContent = '● live';
+    document.getElementById('status').style.color = 'var(--ok)';
+    const m = d.metrics||{};
+    document.getElementById('v-std').textContent    = (m.disparity_std_px||0).toFixed(2);
+    document.getElementById('v-entropy').textContent = (d.entropy||0).toFixed(3);
+    document.getElementById('v-zmean').textContent  = (m.z_mean_m||0).toFixed(2)+'m';
+    document.getElementById('v-fill').textContent   = (m.fill_rate||0).toFixed(1)+'%';
+    document.getElementById('v-pts').textContent    = (m.points||0).toLocaleString();
+    document.getElementById('v-worst').textContent  = (d.worst?.std||0).toFixed(2);
+    updateHeatmap(d.cells||[]);
+    buf.push({ts: Date.now()/1000, std: m.disparity_std_px, H: d.entropy,
+              z: m.z_mean_m, fill: m.fill_rate, pts: m.points});
+    if(buf.length > MAX*2) buf = buf.slice(-MAX);
+    const std_vals  = buf.map(b=>b.std);
+    const H_vals    = buf.map(b=>b.H);
+    const z_vals    = buf.map(b=>b.z);
+    const fill_vals = buf.map(b=>b.fill);
+    const pt_vals   = buf.map(b=>b.pts);
+    drawChart(document.getElementById('chart'),[
+      {data:std_vals,  color:'#f85149', label:'std px'},
+      {data:H_vals,    color:'#bc8cff', label:'H'},
+      {data:z_vals,    color:'#58a6ff', label:'Z m'},
+    ]);
+    drawChart(document.getElementById('chart2'),[
+      {data:fill_vals, color:'#3fb950', label:'fill%'},
+      {data:pt_vals.map(v=>v/1000), color:'#d29922', label:'kpts'},
+    ]);
+    drawHist(document.getElementById('hist'), d.cells||[]);
+  } catch(e){
+    document.getElementById('status').textContent = '✗ '+e.message;
+    document.getElementById('status').style.color = 'var(--bad)';
+  }
+}
+
+// load history
+fetch('/api/depth/history',{cache:'no-store'}).then(r=>r.json()).then(rows=>{
+  buf = rows.map(r=>({ts:r.ts, std:r.std, H:r.entropy, z:r.z_mean, fill:r.fill, pts:r.points}));
+}).catch(()=>{});
+
+tick();
+setInterval(tick, 1000);
+window.addEventListener('resize', ()=>{
+  if(buf.length){
+    const c = document.getElementById('chart');
+    const c2 = document.getElementById('chart2');
+    if(c) drawChart(c,[]);
+    if(c2) drawChart(c2,[]);
+  }
+});
+</script>
+</body></html>

@@ -534,6 +534,45 @@ class H(http.server.BaseHTTPRequestHandler):
                         items.extend(activity_event(d))
                 except Exception: pass
             self._s(200, json.dumps(items[-50:], ensure_ascii=False)); return
+        if p == "/api/depth":
+            import urllib.request as _ur
+            DEPTH_PORT = int(q.get("port", "8080"))
+            try:
+                def _fetch(cmd):
+                    url = f"http://localhost:{DEPTH_PORT}/control?cmd={cmd}"
+                    return json.loads(_ur.urlopen(url, timeout=1).read())
+                met  = _fetch("metrics")
+                nmap = _fetch("noise_map")
+                cells_flat = [v for row in nmap.get("cells", []) for v in row]
+                total = sum(cells_flat)
+                H = 0.0
+                if total > 0:
+                    H = -sum(v/total * math.log2(v/total) for v in cells_flat if v > 0)
+                row = {"ts": round(time.time(), 2),
+                       "std":      met.get("disparity_std_px"),
+                       "points":   met.get("points"),
+                       "fill":     met.get("fill_rate"),
+                       "z_mean":   met.get("z_mean_m"),
+                       "worst":    nmap.get("worst", {}).get("std"),
+                       "entropy":  round(H, 4)}
+                (DATA / "depth_metrics.jsonl").open("a").write(
+                    json.dumps(row, ensure_ascii=False) + "\n")
+                nmap["metrics"] = met
+                nmap["entropy"] = row["entropy"]
+                self._s(200, json.dumps(nmap, ensure_ascii=False))
+            except Exception as e:
+                self._s(503, json.dumps({"error": str(e)}))
+            return
+
+        if p == "/api/depth/history":
+            f = DATA / "depth_metrics.jsonl"
+            rows = []
+            if f.exists():
+                for ln in f.read_text().splitlines()[-200:]:
+                    try: rows.append(json.loads(ln))
+                    except Exception: pass
+            self._s(200, json.dumps(rows, ensure_ascii=False)); return
+
         if p == "/critique":
             cr = DATA / "critique.md"
             self._s(200, json.dumps({"text": cr.read_text() if cr.exists() else ""},

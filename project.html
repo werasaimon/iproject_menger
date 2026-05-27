@@ -200,13 +200,19 @@
       <h3>распределение по типам</h3>
       <table class="tt"><tr><th>тип</th><th>n</th><th>доля</th></tr>${typeRows}</table>
       <h3>🧠 рассуждения (живой trace)</h3>
-      <div class="ptrace" id="ptrace"><span style="color:var(--mut)">пока пусто</span></div>`;
+      <div class="ptrace" id="ptrace"><span style="color:var(--mut)">пока пусто</span></div>
+      <h3>🔴 критик · последний прогон</h3>
+      <div id="critique-box" style="background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#e6edf3"><span style="color:var(--mut)">нет данных — запусти bin/critic &lt;project&gt;</span></div>`;
     L.innerHTML=`<div class="legend">
       <span><i style="background:#3fb950"></i>feat</span><span><i style="background:#f85149"></i>fix</span>
       <span><i style="background:#bc8cff"></i>refactor</span><span><i style="background:#58a6ff"></i>docs</span>
       <span><i style="background:#d29922"></i>test</span><span><i style="background:#8b949e"></i>chore</span></div>
       <p style="color:var(--mut);font-size:12px;padding:6px">Анализ git-истории: метрики, распределения, графики. Рантайм-метрики (FPS/латентность) — позже через БД.</p>`;
     pollPtrace();
+    fetch("/critique",{cache:"no-store"}).then(r=>r.json()).then(d=>{
+      const box=document.getElementById("critique-box");
+      if(box && d.text) box.textContent=d.text;
+    }).catch(()=>{});
   }
   async function pollPtrace(){
     const el=document.getElementById("ptrace"); if(!el) return;

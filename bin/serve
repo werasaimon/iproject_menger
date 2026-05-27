@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
-# Launch the iProject Manager on this PC: the web server + a paired Claude session.
+# Launch / manage the iProject Manager on this PC.
 #   bin/serve            (start) -> ensure the server is up, then open Claude here (paired)
 #   bin/serve stop               -> stop the web server
 #   bin/serve status             -> server status
+#   bin/serve install            -> install + enable the systemd --user unit (survives reboot)
 SVC=iproject-menger.service
-DIR=/home/wera_n/GIT/iproject_menger
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
 case "${1:-start}" in
+  install)
+    PY="$(command -v python3)"
+    UNIT="$HOME/.config/systemd/user/$SVC"
+    mkdir -p "$(dirname "$UNIT")"
+    sed -e "s#__DIR__#$DIR#g" -e "s#__PY__#$PY#g" "$DIR/deploy/$SVC" > "$UNIT"
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$SVC"
+    loginctl enable-linger "$USER" 2>/dev/null || true
+    echo "✓ installed → $UNIT  (linger: $(loginctl show-user "$USER" -p Linger --value))"
+    systemctl --user --no-pager status "$SVC" | head -4 ;;
   stop)
     systemctl --user stop "$SVC" 2>/dev/null || fuser -k 8078/tcp 2>/dev/null
     echo "■ server stopped" ;;
@@ -24,5 +35,5 @@ case "${1:-start}" in
     cd "$DIR"
     exec claude "Старт пара-сессии на этом ПК. Сначала запусти bin/ctx, чтобы поднять контекст и нашу память. Потом спроси меня, входим ли в пара-петлю (bin/watch в фоне → сообщения с сайта; ответ через bin/say, шаги через bin/step). Мы — коллеги." ;;
   *)
-    echo "usage: bin/serve {start|stop|status}"; exit 1 ;;
+    echo "usage: bin/serve {start|stop|status|install}"; exit 1 ;;
 esac

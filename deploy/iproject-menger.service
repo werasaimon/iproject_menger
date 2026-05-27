@@ -1,0 +1,11 @@
+[Unit]
+Description=iProject Manager (pair-research server)
+
+[Service]
+WorkingDirectory=__DIR__
+ExecStart=__PY__ __DIR__/server.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

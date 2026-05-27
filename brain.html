@@ -19,7 +19,8 @@
   #toolbar button{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:14px;padding:3px 11px;font-size:12px;cursor:pointer}
   #toolbar button:hover,#toolbar button.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
   #gtitle{font-size:13px;font-weight:700;color:var(--fg);margin-right:4px}
-  #cy{flex:1;min-height:0;position:relative}
+  #cybox{flex:1;min-height:0;position:relative}
+  #cy{position:absolute;inset:0}
   #legend{position:absolute;top:6px;left:6px;z-index:5;background:rgba(22,27,34,.92);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;max-width:44%}
   #legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:3px;vertical-align:middle}
   #legend .grp{margin-top:4px;color:var(--mut)} #legend span{margin-right:7px;white-space:nowrap}
@@ -44,7 +45,8 @@
       <button id="btn-lr" onclick="relayout('LR')">→ LR</button>
       <button onclick="window.cy&&window.cy.fit(null,40)">⊡ fit</button>
     </div>
-    <div id="cy" style="position:relative">
+    <div id="cybox">
+      <div id="cy"></div>
       <div id="legend">
         <div><b>узлы:</b>
           <span><i style="background:#58a6ff"></i>state</span><span><i style="background:#bc8cff"></i>judgment</span>

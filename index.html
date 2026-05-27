@@ -76,11 +76,6 @@
   </div>
 
   <div class="trace">
-    <h2>🛰 Live · что делает Claude (реальные действия из транскрипта)</h2>
-    <div class="steps" id="act"><span style="color:var(--mut)">подключаюсь к транскрипту сессии…</span></div>
-  </div>
-
-  <div class="trace">
     <h2>🧠 Процесс рассуждения Claude (живой)</h2>
     <div class="steps" id="steps"><span style="color:var(--mut)">шаги появятся во время работы / отладки…</span></div>
   </div>
@@ -154,19 +149,8 @@
       } else el.classList.remove("on");
     }catch(e){}
   }
-  const TI={Read:"📖",Edit:"✏️",Write:"📝",Bash:"⚡",Grep:"🔎",Glob:"🗂",Task:"🤖",WebFetch:"🌐",WebSearch:"🔍",TodoWrite:"✅",NotebookEdit:"📓"};
-  async function pollActivity(){
-    try{ const a=await (await fetch("/activity",{cache:"no-store"})).json();
-      if(!a.length) return;
-      const ic=e=> e.kind==="tool"?(TI[e.tool]||"🔧") : e.kind==="thinking"?"🤔" : e.kind==="result"?"↳" : "💬";
-      document.getElementById("act").innerHTML=a.map(e=>
-        "<div class='step "+(e.kind==='tool'?'check':e.kind==='thinking'?'hyp':e.kind==='result'?'note':'done')+"'><span class='ts'>"+(e.ts||"")+"</span><div class='w'>"+ic(e)+" "+(e.tool?"<b>["+e.tool+"]</b> ":"")+(e.text||"").replace(/</g,"&lt;")+"</div></div>").join("");
-      const el=document.getElementById("act"); el.scrollTop=el.scrollHeight;
-    }catch(e){}
-  }
-  loadProjects(); poll(); pollTrace(); pollCritique(); loadCommands(); pollStatus(); pollActivity();
+  loadProjects(); poll(); pollTrace(); pollCritique(); loadCommands(); pollStatus();
   setInterval(()=>{loadProjects();poll();pollTrace();pollCritique();}, 3000);
   setInterval(pollStatus, 1000);
-  setInterval(pollActivity, 1500);
 </script>
 </body></html>

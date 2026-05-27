@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Post a Claude reply into the pair-chat.  Usage: bin/say "text"
+# Post a Claude reply into the pair-chat (and turn the "thinking" blinker off).
+# Usage: bin/say "text"
 python3 - "$*" <<'PY'
 import json, time, sys, pathlib
-pathlib.Path("/home/wera_n/GIT/iproject_menger/data/replies.jsonl").open("a").write(
+D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+D.joinpath("replies.jsonl").open("a").write(
     json.dumps({"ts": time.strftime("%H:%M:%S"), "role": "claude", "text": sys.argv[1]},
                ensure_ascii=False) + "\n")
+D.joinpath("status.json").write_text(json.dumps({"busy": False, "text": "", "at": time.time()}))
 print("ok")
 PY

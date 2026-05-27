@@ -4,8 +4,12 @@
 # KIND in: hyp | check | found | fix | done | note
 python3 - "$1" "$2" "${3:-}" <<'PY'
 import json, time, sys, pathlib
-pathlib.Path("/home/wera_n/GIT/iproject_menger/data/trace.jsonl").open("a").write(
+D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+D.joinpath("trace.jsonl").open("a").write(
     json.dumps({"ts": time.strftime("%H:%M:%S"), "kind": sys.argv[1],
                 "what": sys.argv[2], "why": sys.argv[3]}, ensure_ascii=False) + "\n")
+# each step also narrates the live "thinking" blinker
+D.joinpath("status.json").write_text(json.dumps(
+    {"busy": True, "text": sys.argv[2].strip() or "думаю…", "at": time.time()}))
 print("ok")
 PY

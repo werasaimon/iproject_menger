@@ -26,7 +26,15 @@ DATA.mkdir(exist_ok=True)
 INBOX  = DATA / "inbox.jsonl"
 NEW    = DATA / "inbox_new"
 REPLY  = DATA / "replies.jsonl"
+STATUS = DATA / "status.json"
 PORT   = 8078
+
+def set_status(busy, text=""):
+    """Live 'Claude is thinking' signal the browser polls. at=epoch for elapsed timer."""
+    try:
+        STATUS.write_text(json.dumps({"busy": bool(busy), "text": text, "at": time.time()}))
+    except Exception:
+        pass
 
 PROJECTS = {
     "depz-toolkit":    pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
@@ -148,6 +156,12 @@ class H(http.server.BaseHTTPRequestHandler):
                 self._s(200, json.dumps({"path": rel, "size": sz, "text": "(binary file)"})); return
             self._s(200, json.dumps({"path": rel, "size": sz, "text": txt}, ensure_ascii=False)); return
 
+        if p.startswith("/up/"):
+            f = (DATA / "uploads" / p[4:]).resolve()
+            if str(f).startswith(str((DATA / "uploads").resolve()) + os.sep) and f.is_file():
+                self._s(200, f.read_bytes(), "image/" + (f.suffix[1:].lower() or "png")); return
+            self._s(404, "no"); return
+
         # ── pair chat ──
         if p == "/say":
             t = q.get("text", "").strip()
@@ -157,7 +171,15 @@ class H(http.server.BaseHTTPRequestHandler):
                 NEW.write_text(t)
                 m = re.match(r"^\[([^\]]+)\]", t)   # [project] prefix → active project
                 if m: (DATA / "active_project").write_text(m.group(1).strip())
+                set_status(True, "получил сообщение, думаю…")
             self._s(200, json.dumps({"ok": bool(t)})); return
+        if p == "/status":
+            try:
+                d = json.loads(STATUS.read_text()) if STATUS.exists() else {}
+            except Exception:
+                d = {}
+            self._s(200, json.dumps({"busy": d.get("busy", False),
+                                     "text": d.get("text", ""), "at": d.get("at", 0)})); return
         if p == "/feedback":
             ts = q.get("ts", ""); v = q.get("v", "")
             if ts and v in ("up", "down"):
@@ -206,6 +228,35 @@ class H(http.server.BaseHTTPRequestHandler):
                         (edges if o.get("t") == "edge" else nodes).append(o)
                     except Exception: pass
             self._s(200, json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)); return
+        if p == "/api/hypotheses":
+            name = q.get("p", ""); items = []
+            hf = DATA / "hypotheses" / (name + ".jsonl")
+            if name in PROJECTS and hf.is_file():
+                for ln in hf.read_text().splitlines():
+                    try: items.append(json.loads(ln))
+                    except Exception: pass
+            self._s(200, json.dumps(items, ensure_ascii=False)); return
+        if p == "/hyp/add":
+            name = q.get("p", ""); text = q.get("text", "").strip()
+            if name in PROJECTS and text:
+                (DATA / "hypotheses").mkdir(exist_ok=True)
+                (DATA / "hypotheses" / (name + ".jsonl")).open("a").write(json.dumps(
+                    {"id": str(int(time.time() * 1000)), "text": text, "status": "open",
+                     "ts": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
+            self._s(200, json.dumps({"ok": True})); return
+        if p == "/hyp/status":
+            name = q.get("p", ""); hid = q.get("id", ""); st = q.get("status", "")
+            hf = DATA / "hypotheses" / (name + ".jsonl")
+            if name in PROJECTS and hf.is_file() and st in ("open", "confirmed", "refuted"):
+                out = []
+                for ln in hf.read_text().splitlines():
+                    try:
+                        o = json.loads(ln)
+                        if o.get("id") == hid: o["status"] = st
+                        out.append(o)
+                    except Exception: pass
+                hf.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in out) + "\n")
+            self._s(200, json.dumps({"ok": True})); return
         if p == "/judgement":
             name = q.get("p", "")
             if name in PROJECTS:
@@ -221,6 +272,35 @@ class H(http.server.BaseHTTPRequestHandler):
         name = p.lstrip("/")
         if name.endswith(".html") and "/" not in name:
             if self._page(name): return
+        self._s(404, "no")
+
+    def do_POST(self):
+        u = urllib.parse.urlparse(self.path)
+        q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+        if u.path == "/upload":
+            try:
+                n = int(self.headers.get("Content-Length", "0") or "0")
+                data = self.rfile.read(n) if n > 0 else b""
+                if not data or n > 12_000_000:
+                    self._s(400, json.dumps({"error": "empty or too large"})); return
+                (DATA / "uploads").mkdir(exist_ok=True)
+                fname = q.get("name", "file")
+                ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else "bin"
+                if len(ext) > 5 or not ext.isalnum(): ext = "bin"
+                fn = time.strftime("%H%M%S") + "_" + str(int(time.time() * 1000))[-4:] + "." + ext
+                (DATA / "uploads" / fn).write_bytes(data)
+                rel = "data/uploads/" + fn
+                ctx = q.get("p", "")
+                with INBOX.open("a") as f:
+                    f.write(json.dumps({"ts": time.strftime("%H:%M:%S"),
+                        "text": "📎 " + fname + ((" [" + ctx + "]") if ctx else ""),
+                        "img": rel}, ensure_ascii=False) + "\n")
+                NEW.write_text("[file] " + str(BASE / rel) + ((" [" + ctx + "]") if ctx else ""))
+                set_status(True, "смотрю присланный файл…")
+                self._s(200, json.dumps({"ok": True, "path": rel}))
+            except Exception as e:
+                self._s(400, json.dumps({"error": str(e)}))
+            return
         self._s(404, "no")
 
     def log_message(self, *_): pass

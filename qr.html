@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR · depz site</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  body{background:#0d1117;color:#e6edf3;font:16px system-ui,sans-serif;margin:0;
+       display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}
+  h2{margin:0 0 18px} #qr{background:#fff;padding:16px;border-radius:14px}
+  a{color:#58a6ff;margin-top:18px;font-size:20px;text-decoration:none}
+  .hint{color:#8b949e;font-size:13px;margin-top:6px}
+</style></head>
+<body>
+  <h2>📱 Сканируй с планшета (одна Wi-Fi)</h2>
+  <div id="qr"></div>
+  <a id="u"></a>
+  <div class="hint">или набери адрес вручную</div>
+<script>
+  const url = "http://192.168.1.103:8078/";
+  new QRCode(document.getElementById("qr"), {text:url, width:320, height:320,
+    colorDark:"#000", colorLight:"#fff", correctLevel: QRCode.CorrectLevel.M});
+  const a=document.getElementById("u"); a.textContent=url; a.href=url;
+</script>
+</body></html>

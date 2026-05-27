@@ -5,49 +5,79 @@
 <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
 <style>
   :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--accent:#58a6ff;--del:#f85149}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif}
-  #cy{position:absolute;inset:0;bottom:0}
-  #legend{position:absolute;top:8px;left:8px;z-index:5;background:rgba(22,27,34,.9);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:11.5px}
-  #legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
-  #legend .row{margin:2px 0}
-  #info{position:absolute;right:8px;top:8px;z-index:5;max-width:300px;background:rgba(22,27,34,.95);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:12.5px;display:none}
-  #info .ttl{font-weight:700;margin-bottom:4px} #info .why{color:#ff7b72}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif}
+  #cy{height:56vh;border-bottom:1px solid var(--line)}
+  #legend{position:absolute;top:6px;left:6px;z-index:5;background:rgba(22,27,34,.9);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;max-width:46%}
+  #legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:3px;vertical-align:middle}
+  #legend .grp{margin-top:4px;color:var(--mut)} #legend span{margin-right:8px;white-space:nowrap}
+  #info{position:absolute;top:6px;right:6px;z-index:5;max-width:300px;background:rgba(22,27,34,.96);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:12.5px;display:none}
+  #info .ttl{font-weight:700;margin-bottom:4px} #info .why{color:#ff7b72;margin-top:4px}
+  #conn{padding:8px 10px}
+  #conn h3{margin:4px 0 6px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  td,th{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top} th{background:#1c2330}
+  tr.imp td{background:rgba(248,81,73,.07)} .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
 </style></head>
 <body>
 <div id="cy"></div>
 <div id="legend">
-  <div class="row"><i style="background:#58a6ff"></i>state</div>
-  <div class="row"><i style="background:#bc8cff"></i>judgment</div>
-  <div class="row"><i style="background:#3fb950"></i>fact</div>
-  <div class="row"><i style="background:#d29922"></i>action</div>
-  <div class="row"><i style="background:#f85149"></i>forbidden</div>
-  <div class="row" style="margin-top:5px;color:var(--mut)">— рёбра: серое=возможно · <span style="color:#f85149">красный пунктир=невозможно</span></div>
+  <div><b>узлы:</b>
+    <span><i style="background:#58a6ff"></i>state</span><span><i style="background:#bc8cff"></i>judgment</span>
+    <span><i style="background:#3fb950"></i>fact</span><span><i style="background:#d29922"></i>action</span><span><i style="background:#f85149"></i>forbidden</span></div>
+  <div class="grp"><b>рёбра:</b>
+    <span><i style="background:#3fb950"></i>supports</span><span><i style="background:#58a6ff"></i>implies/requires</span>
+    <span><i style="background:#39c5cf"></i>⤳ defeasible</span><span><i style="background:#bc8cff"></i>refines</span>
+    <span><i style="background:#d29922"></i>resolved-by</span><span><i style="background:#f85149"></i>contradicts / ✗невозможно (пунктир)</span></div>
 </div>
 <div id="info"></div>
+<div id="conn"></div>
 <script>
 const P=new URLSearchParams(location.search).get("p")||"";
+const esc=s=>(''+s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 const KC={state:"#1f6feb",judgment:"#7b50c0",fact:"#1f7a33",action:"#9a6f14",forbidden:"#7a2420"};
 const KB={state:"#58a6ff",judgment:"#bc8cff",fact:"#3fb950",action:"#d29922",forbidden:"#f85149"};
+function relColor(rel,ok){
+  if(ok===false) return "#f85149";
+  const r=(''+rel).toLowerCase();
+  if(/support|characteris/.test(r)) return "#3fb950";
+  if(/contradict/.test(r)) return "#f85149";
+  if(/refine/.test(r)) return "#bc8cff";
+  if(/defeasib|⤳|usually/.test(r)) return "#39c5cf";
+  if(/resolv/.test(r)) return "#d29922";
+  if(/impl|requir|embed|\+/.test(r)) return "#58a6ff";
+  return "#8b949e";
+}
 fetch("/api/brain?p="+encodeURIComponent(P),{cache:"no-store"}).then(r=>r.json()).then(g=>{
+  const lbl={}; (g.nodes||[]).forEach(n=>lbl[n.id]=n.label||n.id);
   const els=[];
   (g.nodes||[]).forEach(n=>els.push({data:{id:n.id,label:n.label||n.id,kind:n.kind||"fact",evidence:n.evidence||""}}));
   (g.edges||[]).forEach((e,i)=>els.push({data:{id:"e"+i,source:e.from,target:e.to,rel:e.rel||"",ok:e.ok!==false,why:e.why||""}}));
-  const cy=cytoscape({container:document.getElementById("cy"),elements:els,
+  cytoscape({container:document.getElementById("cy"),elements:els,
     style:[
       {selector:"node",style:{"label":"data(label)","color":"#e6edf3","font-size":"11px","text-wrap":"wrap","text-max-width":"150px",
         "background-color":ele=>KC[ele.data("kind")]||"#222","border-width":2,"border-color":ele=>KB[ele.data("kind")]||"#888",
         "shape":ele=>ele.data("kind")==="forbidden"?"round-diamond":(ele.data("kind")==="action"?"round-tag":"round-rectangle"),
         "padding":"8px","text-valign":"center","width":"label","height":"label"}},
-      {selector:"edge",style:{"label":"data(rel)","font-size":"9px","color":"#9aa4af","curve-style":"bezier",
-        "target-arrow-shape":"triangle","width":2,"line-color":"#8b949e","target-arrow-color":"#8b949e","text-rotation":"autorotate","text-background-color":"#0d1117","text-background-opacity":1,"text-background-padding":"2px"}},
-      {selector:"edge[!ok]",style:{"line-color":"#f85149","target-arrow-color":"#f85149","line-style":"dashed","width":3,"color":"#ff7b72","target-arrow-shape":"tee"}}
+      {selector:"edge",style:{"label":"data(rel)","font-size":"9px","color":ele=>relColor(ele.data("rel"),ele.data("ok")),"curve-style":"bezier",
+        "target-arrow-shape":"triangle","width":2.5,"line-color":ele=>relColor(ele.data("rel"),ele.data("ok")),
+        "target-arrow-color":ele=>relColor(ele.data("rel"),ele.data("ok")),"text-rotation":"autorotate",
+        "text-background-color":"#0d1117","text-background-opacity":1,"text-background-padding":"2px"}},
+      {selector:"edge[!ok]",style:{"line-style":"dashed","width":3,"target-arrow-shape":"tee"}}
     ],
-    layout:{name:"cose",animate:false,padding:30,nodeRepulsion:9000,idealEdgeLength:120}});
-  const info=document.getElementById("info");
-  function show(t,sub,why){info.style.display="block";info.innerHTML="<div class='ttl'>"+t+"</div>"+(sub?"<div>"+sub+"</div>":"")+(why?"<div class='why'>✗ "+why+"</div>":"");}
-  cy.on("tap","node",e=>show(e.target.data("label"),e.target.data("kind")+(e.target.data("evidence")?" · "+e.target.data("evidence"):""),""));
-  cy.on("tap","edge",e=>show((e.target.data("ok")?"":"НЕВОЗМОЖНО · ")+e.target.data("rel"),e.target.data("source")+" → "+e.target.data("target"),e.target.data("ok")?"":e.target.data("why")));
-  cy.on("tap",e=>{ if(e.target===cy) info.style.display="none"; });
+    layout:{name:"cose",animate:false,padding:30,nodeRepulsion:9000,idealEdgeLength:120}})
+  .on("tap","node",e=>show(e.target.data("label"),e.target.data("kind")+(e.target.data("evidence")?" · "+e.target.data("evidence"):""),""))
+  .on("tap","edge",e=>show((e.target.data("ok")?"":"НЕВОЗМОЖНО · ")+e.target.data("rel"),e.target.data("source")+" → "+e.target.data("target"),e.target.data("ok")?"":e.target.data("why")))
+  .on("tap",function(e){ if(e.target===this) document.getElementById("info").style.display="none"; });
+  // ── connections table (for deep judgments) ──
+  document.getElementById("conn").innerHTML="<h3>таблица связей ("+(g.edges||[]).length+")</h3><table>"
+    +"<tr><th>от</th><th>связь</th><th>к</th><th>?</th><th>почему</th></tr>"
+    +(g.edges||[]).map(e=>{const c=relColor(e.rel,e.ok!==false);
+      return `<tr class="${e.ok===false?'imp':''}"><td>${esc(lbl[e.from]||e.from)}</td>`
+        +`<td><span class="dot" style="background:${c}"></span>${esc(e.rel||'')}</td>`
+        +`<td>${esc(lbl[e.to]||e.to)}</td><td>${e.ok===false?'<b style="color:#f85149">✗</b>':'✓'}</td>`
+        +`<td>${esc(e.why||'')}</td></tr>`;}).join("")+"</table>";
 });
+function show(t,sub,why){const info=document.getElementById("info");info.style.display="block";
+  info.innerHTML="<div class='ttl'>"+esc(t)+"</div>"+(sub?"<div>"+esc(sub)+"</div>":"")+(why?"<div class='why'>✗ "+esc(why)+"</div>":"");}
 </script>
 </body></html>

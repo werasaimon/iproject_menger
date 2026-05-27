@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Add a hypothesis card to a project's deck.  Usage: bin/hyp <project> "text"
+python3 - "${1:?usage: hyp <project> \"text\"}" "${2:?need text}" <<'PY'
+import json, sys, time, pathlib
+p, t = sys.argv[1], sys.argv[2]
+d = pathlib.Path("/home/wera_n/GIT/iproject_menger/data/hypotheses"); d.mkdir(parents=True, exist_ok=True)
+(d / (p + ".jsonl")).open("a").write(json.dumps(
+    {"id": str(int(time.time() * 1000)), "text": t, "status": "open",
+     "ts": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
+print("hypothesis added to", p)
+PY

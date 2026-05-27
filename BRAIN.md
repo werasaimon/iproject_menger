@@ -59,6 +59,55 @@ functors = bindings (`parity` = a commuting diagram). A judgment is a predicate 
 morphism *object → truth/confidence*). The brain is the **accumulating diagram** of
 these.
 
+## Emergence — connections birth ideas (the attention parallel)
+
+Deeper thoughts are born from **dense, weighted connectivity**, not from any single
+edge. This mirrors how an LLM works: self-attention connects every token to every
+other, and meaning emerges from the **weighting and composition** of those
+connections across layers. The brain graph is the same substrate.
+
+**The actual mechanism (and the caveat):** "everything connected to everything"
+*uniformly* is noise. The power is **selective, weighted** connection — attention
+learns *which* links matter. So the brain surfaces **high-information / surprising**
+connections (the Shannon weight = the "attention") and lets weak ones fade.
+
+**How ideas are born here (cheap):** beyond the explicit edges, the brain proposes
+**candidate connections** (latent edges) — nodes sharing an object or terms,
+cross-project echoes, hidden contradictions — drawn faint. We (or the critic) judge
+them; a promoted candidate becomes a real edge. **That promotion is the moment a
+deeper idea is born** — the graph composing what we had not yet connected.
+
+## Foundation — intelligence = compression = prediction (and why it's possible)
+
+Why does any of this work? Because the world has **structure** — laws.
+
+- **Intelligence ∝ predictive information / cost.** Directly proportional to the bits
+  of the future you pin to high probability (the mutual information
+  I(past; future) — *predictive information* / *excess entropy*), inversely to the
+  observations / model size it took. Predict *more* of the future from *less* — that
+  is intelligence. (Solomonoff · Kolmogorov/MDL · Hutter/AIXI · Sutskever · Friston.)
+- **A law is a compression.** `F = ma` compresses infinitely many observations into a
+  short rule (Noether: symmetry → conserved law). Finding laws = compressing = science.
+- **Without laws, nothing.** With no structure the world is maximum entropy — every
+  microstate equally likely, I(past; future) = 0, incompressible (Kolmogorov
+  complexity ≈ its own length). Pure noise → no prediction, no compression, **no
+  intelligence** — "no rules of the game". (And the universe is predictable only
+  because it *started* low-entropy — the past hypothesis / arrow of time.)
+- **Never perfectly, even with laws.** Chaos, quantum indeterminacy, and
+  computational irreducibility mean you can't predict every particle. Intelligence
+  predicts the **compressible, coarse-grained** regularity — to a *high* probability,
+  never P = 1 (perfect prediction = infinite information).
+
+**Tie-back to the brain:** a codebase has its own laws — **invariants** (superset /
+isometry / parity / behaviour-preservation). The brain's job is to *discover these
+laws*, because they make the project's future predictable and its changes safe.
+**Forbidden edges = law-breaking moves** (impossible — they violate an invariant). A
+confirmed hypothesis = a discovered law (a short predictive rule). A high-information
+edge = one that changes the prediction. So the tool is precisely **a compressor that
+finds the laws of a project** — and intelligence (ours and mine) is how much of its
+future we predict from how little, bounded by what is law-like vs irreducibly
+contingent.
+
 ## Storage & minimal build (cheap, incremental — reuse everything)
 
 - `data/brain/<project>.jsonl` — **one brain per project**, append-only nodes +

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Update the live "thinking" blinker text without answering yet.
+# Call it as you work so the site shows WHAT you're doing. Usage: bin/busy "правлю layout…"
+python3 - "$*" <<'PY'
+import json, time, sys, pathlib
+txt = sys.argv[1].strip() or "думаю…"
+pathlib.Path("/home/wera_n/GIT/iproject_menger/data/status.json").write_text(
+    json.dumps({"busy": True, "text": txt, "at": time.time()}))
+print("busy:", txt)
+PY

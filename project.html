@@ -69,6 +69,7 @@
   .hyp .hd{display:flex;justify-content:space-between;font-size:11px}
   .hyp .badge{font-weight:700} .hyp .badge.confirmed{color:#3fb950} .hyp .badge.refuted{color:#f85149} .hyp .badge.open{color:#d29922} .hyp .dt{color:var(--mut)}
   .hyp .tx{margin:3px 0;font-size:13.5px;white-space:pre-wrap} .hyp .acts b{cursor:pointer;margin-right:12px;opacity:.65;font-size:14px} .hyp .acts b:hover{opacity:1}
+  .hyp-ev{font-size:11.5px;color:#8fdb9a;background:#0f2d14;border:1px solid #2a6b34;border-radius:6px;padding:4px 8px;margin:4px 0;font-family:ui-monospace,monospace}
   @media(max-width:950px), (orientation:portrait) and (max-width:1200px){
     html,body{height:auto} body{min-height:100%}
     header{flex-wrap:wrap;gap:6px 10px;padding:9px 12px} header h1{font-size:16px}
@@ -200,8 +201,10 @@
   }
   function hypCard(h){ const s=h.status||"open";
     const badge = s==='confirmed'?'✓ подтверждена':s==='refuted'?'✗ опровергнута':'open';
-    return `<div class="hyp ${s}"><div class="hd"><span class="badge ${s}">${badge}</span><span class="dt">${h.ts||''}</span></div>
-      <div class="tx">${esc(h.text)}</div>
+    const evid = h.evidence ? `<div class="hyp-ev">${esc(h.evidence)}</div>` : '';
+    const chk  = h.checked_ts ? ` · проверено ${h.checked_ts}` : '';
+    return `<div class="hyp ${s}"><div class="hd"><span class="badge ${s}">${badge}</span><span class="dt">${h.ts||''}${chk}</span></div>
+      <div class="tx">${esc(h.text)}</div>${evid}
       <div class="acts"><b onclick="hypStatus('${h.id}','confirmed')" title="подтвердить">✓</b><b onclick="hypStatus('${h.id}','refuted')" title="опровергнуть">✗</b><b onclick="hypStatus('${h.id}','open')" title="open">↺</b></div></div>`; }
   async function renderHyp(L,C){
     const hs = await (await fetch("/api/hypotheses?p="+encodeURIComponent(P),{cache:"no-store"})).json();
@@ -275,11 +278,20 @@
     if(c.send){ fetch("/say?text="+encodeURIComponent(c.send)); }
     else if(c.copy){ if(navigator.clipboard) navigator.clipboard.writeText(c.copy); }
   }
+  const TI2={Read:"📖 читаю",Edit:"✏️ редактирую",Write:"📝 пишу",Bash:"⚡ выполняю",Grep:"🔎 ищу",Glob:"🗂 сканирую",Agent:"🤖 агент",WebFetch:"🌐 скачиваю",WebSearch:"🔍 ищу в сети",TodoWrite:"✅ задача"};
   async function pollStatus(){
     try{ const s=await (await fetch("/status",{cache:"no-store"})).json();
       const el=document.getElementById("think");
-      if(s.busy){ el.classList.add("on");
-        document.getElementById("thinktx").textContent=s.text||"думаю…";
+      if(s.busy){
+        el.classList.add("on");
+        // try to get live action from multiplexer
+        let label = s.text||"думаю…";
+        try{
+          const a=await (await fetch("/activity",{cache:"no-store"})).json();
+          const last=a.filter(e=>e.kind==="tool"||e.kind==="thinking").pop();
+          if(last){ label = last.kind==="tool" ? (TI2[last.tool]||("🔧 "+last.tool)) + (last.text?" · "+last.text.slice(0,60):"") : "🤔 "+last.text.slice(0,80); }
+        }catch(_){}
+        document.getElementById("thinktx").textContent=label;
         document.getElementById("thinkel").textContent=Math.max(0,Math.round(Date.now()/1000-(s.at||0)))+" c";
       } else el.classList.remove("on");
     }catch(e){}

@@ -3,10 +3,15 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>🧠 brain</title>
 <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 <style>
   :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--accent:#58a6ff;--del:#f85149}
   html,body{margin:0;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif}
-  #cy{height:56vh;border-bottom:1px solid var(--line)}
+  #toolbar{display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  #toolbar button{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:14px;padding:3px 11px;font-size:12px;cursor:pointer}
+  #toolbar button:hover,#toolbar button.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
+  #cy{height:52vh;border-bottom:1px solid var(--line)}
   #legend{position:absolute;top:6px;left:6px;z-index:5;background:rgba(22,27,34,.9);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:11px;max-width:46%}
   #legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:3px;vertical-align:middle}
   #legend .grp{margin-top:4px;color:var(--mut)} #legend span{margin-right:8px;white-space:nowrap}
@@ -19,6 +24,11 @@
   tr.imp td{background:rgba(248,81,73,.07)} .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
 </style></head>
 <body>
+<div id="toolbar">
+  <button id="btn-tb" class="on" onclick="relayout('TB')">↓ сверху вниз</button>
+  <button id="btn-lr" onclick="relayout('LR')">→ слева направо</button>
+  <button onclick="window.cy&&window.cy.fit(null,40)">⊡ вписать</button>
+</div>
 <div id="cy"></div>
 <div id="legend">
   <div><b>узлы:</b>
@@ -58,16 +68,18 @@ fetch("/api/brain?p="+encodeURIComponent(P),{cache:"no-store"}).then(r=>r.json()
         "background-color":ele=>KC[ele.data("kind")]||"#222","border-width":2,"border-color":ele=>KB[ele.data("kind")]||"#888",
         "shape":ele=>ele.data("kind")==="forbidden"?"round-diamond":(ele.data("kind")==="action"?"round-tag":"round-rectangle"),
         "padding":"8px","text-valign":"center","width":"label","height":"label"}},
-      {selector:"edge",style:{"label":"data(rel)","font-size":"9px","color":ele=>relColor(ele.data("rel"),ele.data("ok")),"curve-style":"bezier",
+      {selector:"edge",style:{"label":"data(rel)","font-size":"9px","color":ele=>relColor(ele.data("rel"),ele.data("ok")),"curve-style":"taxi",
+        "taxi-direction":"downward","taxi-turn":40,
         "target-arrow-shape":"triangle","width":2.5,"line-color":ele=>relColor(ele.data("rel"),ele.data("ok")),
         "target-arrow-color":ele=>relColor(ele.data("rel"),ele.data("ok")),"text-rotation":"autorotate",
         "text-background-color":"#0d1117","text-background-opacity":1,"text-background-padding":"2px"}},
       {selector:"edge[!ok]",style:{"line-style":"dashed","width":3,"target-arrow-shape":"tee"}}
     ],
-    layout:{name:"cose",animate:false,padding:30,nodeRepulsion:9000,idealEdgeLength:120}})
+    layout:{name:"dagre",animate:false,padding:40,rankDir:"TB",nodeSep:60,rankSep:80,edgeSep:20}})
   .on("tap","node",e=>show(e.target.data("label"),e.target.data("kind")+(e.target.data("evidence")?" · "+e.target.data("evidence"):""),""))
   .on("tap","edge",e=>show((e.target.data("ok")?"":"НЕВОЗМОЖНО · ")+e.target.data("rel"),e.target.data("source")+" → "+e.target.data("target"),e.target.data("ok")?"":e.target.data("why")))
   .on("tap",function(e){ if(e.target===this) document.getElementById("info").style.display="none"; });
+  window.cy=cy;
   // ── connections table (for deep judgments) ──
   document.getElementById("conn").innerHTML="<h3>таблица связей ("+(g.edges||[]).length+")</h3><table>"
     +"<tr><th>от</th><th>связь</th><th>к</th><th>?</th><th>почему</th></tr>"
@@ -77,6 +89,12 @@ fetch("/api/brain?p="+encodeURIComponent(P),{cache:"no-store"}).then(r=>r.json()
         +`<td>${esc(lbl[e.to]||e.to)}</td><td>${e.ok===false?'<b style="color:#f85149">✗</b>':'✓'}</td>`
         +`<td>${esc(e.why||'')}</td></tr>`;}).join("")+"</table>";
 });
+function relayout(dir){
+  if(!window.cy) return;
+  document.getElementById("btn-tb").classList.toggle("on", dir==="TB");
+  document.getElementById("btn-lr").classList.toggle("on", dir==="LR");
+  window.cy.layout({name:"dagre",animate:true,animationDuration:300,padding:40,rankDir:dir,nodeSep:60,rankSep:80,edgeSep:20}).run();
+}
 function show(t,sub,why){const info=document.getElementById("info");info.style.display="block";
   info.innerHTML="<div class='ttl'>"+esc(t)+"</div>"+(sub?"<div>"+esc(sub)+"</div>":"")+(why?"<div class='why'>✗ "+esc(why)+"</div>":"");}
 </script>

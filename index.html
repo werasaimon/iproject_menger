@@ -59,6 +59,10 @@
   .think::after{content:"";position:absolute;left:0;bottom:0;height:2px;width:40%;
     background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:sw 1.4s linear infinite}
   @keyframes sw{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+  #choices{display:none;margin:8px 0 4px;padding:10px 12px;background:#0f2d14;border:1px solid #3fb950;border-radius:10px}
+  .ch-q{font-size:13px;color:#d2ffd2;margin-bottom:8px;font-weight:600}
+  .ch-b{display:inline-block;margin:4px 6px 4px 0;padding:7px 16px;background:#1a4a22;color:#56d364;border:1px solid #3fb950;border-radius:20px;cursor:pointer;font-size:13px;font-weight:600;transition:.12s}
+  .ch-b:hover{background:#3fb950;color:#000}
 </style></head>
 <body>
 <header><h1>🛰 DEPZ Studio</h1><span id="live" class="live off">●</span>
@@ -71,6 +75,7 @@
     <h2>Чат с Claude (пара)</h2>
     <div class="log" id="log"></div>
     <div class="think" id="think"><span class="dots"><i></i><i></i><i></i></span><span class="tx" id="thinktx">думаю…</span><span class="el" id="thinkel"></span></div>
+    <div id="choices"></div>
     <div class="cmdbar" id="cmdbar"></div>
     <form onsubmit="return send()"><label class="clip" title="прикрепить файл">📎<input type="file" accept="image/*" onchange="upimg(this)"></label><textarea id="in" rows="2" placeholder="напиши, что делать… (Enter — отправить, Shift+Enter — новая строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button>▶</button></form>
   </div>
@@ -139,18 +144,35 @@
     inp.value=""; }
   function critToChat(){ const t=(document.getElementById("critique").textContent||"").slice(0,1600).trim();
     if(t && !/появится здесь/.test(t)){ fetch("/say?text="+encodeURIComponent("разбери критику и давай исправим по пунктам:\n"+t)); addLocal("→ отправил критику в чат"); } }
+  async function pollChoices(){
+    try{ const d=await (await fetch("/choices",{cache:"no-store"})).json();
+      const el=document.getElementById("choices");
+      if(d.opts&&d.opts.length){
+        el.style.display="block";
+        el.innerHTML="<div class='ch-q'>"+(d.q||"Выбери:")+"</div>"+d.opts.map(o=>"<span class='ch-b'>"+o+"</span>").join("");
+        el.querySelectorAll(".ch-b").forEach(b=>b.addEventListener("click",()=>{say(b.textContent);el.style.display="none";el.innerHTML="";}));
+      } else { el.style.display="none"; el.innerHTML=""; }
+    }catch(e){}
+  }
+  const TI2={Read:"📖 читаю",Edit:"✏️ редактирую",Write:"📝 пишу",Bash:"⚡ выполняю",Grep:"🔎 ищу",Glob:"🗂 сканирую",Agent:"🤖 агент",WebFetch:"🌐 скачиваю",WebSearch:"🔍 ищу в сети",TodoWrite:"✅ задача"};
   async function pollStatus(){
     try{ const s=await (await fetch("/status",{cache:"no-store"})).json();
       const el=document.getElementById("think");
-      if(s.busy){ el.classList.add("on");
-        document.getElementById("thinktx").textContent=s.text||"думаю…";
-        const secs=Math.max(0,Math.round(Date.now()/1000-(s.at||0)));
-        document.getElementById("thinkel").textContent=secs+" c";
+      if(s.busy){
+        el.classList.add("on");
+        let label = s.text||"думаю…";
+        try{
+          const a=await (await fetch("/activity",{cache:"no-store"})).json();
+          const last=a.filter(e=>e.kind==="tool"||e.kind==="thinking").pop();
+          if(last){ label = last.kind==="tool" ? (TI2[last.tool]||("🔧 "+last.tool)) + (last.text?" · "+last.text.slice(0,60):"") : "🤔 "+last.text.slice(0,80); }
+        }catch(_){}
+        document.getElementById("thinktx").textContent=label;
+        document.getElementById("thinkel").textContent=Math.max(0,Math.round(Date.now()/1000-(s.at||0)))+" c";
       } else el.classList.remove("on");
     }catch(e){}
   }
-  loadProjects(); poll(); pollTrace(); pollCritique(); loadCommands(); pollStatus();
-  setInterval(()=>{loadProjects();poll();pollTrace();pollCritique();}, 3000);
+  loadProjects(); poll(); pollTrace(); pollCritique(); loadCommands(); pollStatus(); pollChoices();
+  setInterval(()=>{loadProjects();poll();pollTrace();pollCritique();pollChoices();}, 1500);
   setInterval(pollStatus, 1000);
 </script>
 </body></html>

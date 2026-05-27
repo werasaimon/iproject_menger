@@ -112,6 +112,8 @@
     <div class="think" id="think"><span class="dots"><i></i><i></i><i></i></span><span class="tx" id="thinktx">думаю…</span><span class="el" id="thinkel"></span></div>
     <div class="cmdbar" id="cmdbar"></div>
     <form onsubmit="return send()"><label class="clip" title="прикрепить файл">📎<input type="file" accept="image/*" onchange="upimg(this)"></label><textarea id="in" rows="2" placeholder="спроси про проект… (Enter — отправить, Shift+Enter — строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button class="send">▶</button></form>
+    <div style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:8px 0 4px">🛰 live · что делает Claude</div>
+    <div class="ptrace" id="act"><span style="color:var(--mut)">подключаюсь к транскрипту сессии…</span></div>
   </aside>
 </main>
 <script>
@@ -276,7 +278,17 @@
       } else el.classList.remove("on");
     }catch(e){}
   }
-  head(); render(); poll(); loadCommands(); pollStatus(); setInterval(()=>{poll();pollPtrace();}, 3000);
-  setInterval(pollStatus, 1000);
+  const TI={Read:"📖",Edit:"✏️",Write:"📝",Bash:"⚡",Grep:"🔎",Glob:"🗂",Task:"🤖",WebFetch:"🌐",WebSearch:"🔍",TodoWrite:"✅",NotebookEdit:"📓"};
+  async function pollActivity(){
+    const el=document.getElementById("act"); if(!el) return;
+    try{ const a=await (await fetch("/activity",{cache:"no-store"})).json();
+      if(!a.length) return;
+      const ic=e=> e.kind==="tool"?(TI[e.tool]||"🔧") : e.kind==="thinking"?"🤔" : e.kind==="result"?"↳" : "💬";
+      el.innerHTML=a.map(e=>`<div class="st ${e.kind==='tool'?'check':e.kind==='thinking'?'hyp':e.kind==='result'?'note':'done'}"><span class="k">${ic(e)}${e.tool?' '+e.tool:''}</span> <span class="ts">${e.ts||''}</span> ${esc(e.text||'')}</div>`).join("");
+      el.scrollTop=el.scrollHeight;
+    }catch(e){}
+  }
+  head(); render(); poll(); loadCommands(); pollStatus(); pollActivity(); setInterval(()=>{poll();pollPtrace();}, 3000);
+  setInterval(pollStatus, 1000); setInterval(pollActivity, 1500);
 </script>
 </body></html>

@@ -17,7 +17,7 @@ LAN) and the Claude Code agent watching `data/inbox_new`.
 Read-only git: whitelisted subcommands only, project must be registered, sha is
 hex-validated, file paths confined to the project root. LAN only.
 """
-import http.server, socketserver, urllib.parse, pathlib, json, time, subprocess, re, os
+import http.server, socketserver, urllib.parse, pathlib, json, time, subprocess, re, os, datetime
 
 BASE   = pathlib.Path(__file__).resolve().parent
 DATA   = BASE / "data"
@@ -27,6 +27,7 @@ INBOX  = DATA / "inbox.jsonl"
 NEW    = DATA / "inbox_new"
 REPLY  = DATA / "replies.jsonl"
 STATUS = DATA / "status.json"
+SESSIONS = pathlib.Path.home() / ".claude" / "projects" / "-home-wera-n-GIT-iproject-menger"
 PORT   = 8078
 
 def set_status(busy, text=""):
@@ -49,6 +50,44 @@ def git(path, *args, timeout=8):
                               capture_output=True, text=True, timeout=timeout).stdout
     except Exception as e:
         return f"(git error: {e})"
+
+def activity_event(d):
+    """One site-friendly 'what Claude is doing' event from a Claude Code transcript line.
+
+    The real multiplexer: Claude Code appends every tool_use / tool_result / text /
+    thinking to ~/.claude/projects/<slug>/<session>.jsonl live — we just read its tail.
+    """
+    t = d.get("type"); m = d.get("message")
+    ts = d.get("timestamp") or ""
+    if ts:
+        try: ts = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%H:%M:%S")
+        except Exception: ts = ts[11:19]
+    out = []
+    if t == "assistant" and isinstance(m, dict):
+        for c in (m.get("content") or []):
+            if not isinstance(c, dict): continue
+            k = c.get("type")
+            if k == "tool_use":
+                inp = c.get("input", {}) or {}
+                key = next((x for x in ("file_path", "command", "path", "pattern",
+                                        "description", "url", "prompt", "query") if x in inp), None)
+                out.append({"ts": ts, "kind": "tool", "tool": c.get("name", ""),
+                            "text": str(inp.get(key, ""))[:160]})
+            elif k == "text" and c.get("text", "").strip():
+                out.append({"ts": ts, "kind": "text", "tool": "", "text": c["text"].strip()[:200]})
+            elif k == "thinking" and c.get("thinking", "").strip():
+                out.append({"ts": ts, "kind": "thinking", "tool": "", "text": c["thinking"].strip()[:200]})
+    elif t == "user" and isinstance(m, dict):
+        c = m.get("content")
+        if isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict) and part.get("type") == "tool_result":
+                    r = part.get("content", "")
+                    if isinstance(r, list):
+                        r = " ".join(x.get("text", "") for x in r if isinstance(x, dict))
+                    out.append({"ts": ts, "kind": "result", "tool": "",
+                                "text": str(r).replace("\n", " ").strip()[:140]})
+    return out
 
 class H(http.server.BaseHTTPRequestHandler):
     def _s(self, code, body, ctype="application/json; charset=utf-8"):
@@ -210,6 +249,25 @@ class H(http.server.BaseHTTPRequestHandler):
                     try: items.append(json.loads(ln))
                     except Exception: pass
             self._s(200, json.dumps(items[-60:], ensure_ascii=False)); return
+        if p == "/activity":
+            items = []
+            try:
+                files = sorted(SESSIONS.glob("*.jsonl"), key=lambda x: x.stat().st_mtime)
+                f = files[-1] if files else None
+            except Exception:
+                f = None
+            if f and f.is_file():
+                try:
+                    sz = f.stat().st_size
+                    with f.open("rb") as fh:
+                        if sz > 220_000: fh.seek(sz - 220_000)
+                        chunk = fh.read().decode("utf-8", "replace")
+                    for ln in chunk.splitlines()[-160:]:
+                        try: d = json.loads(ln)
+                        except Exception: continue
+                        items.extend(activity_event(d))
+                except Exception: pass
+            self._s(200, json.dumps(items[-50:], ensure_ascii=False)); return
         if p == "/critique":
             cr = DATA / "critique.md"
             self._s(200, json.dumps({"text": cr.read_text() if cr.exists() else ""},

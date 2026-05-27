@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Offer the user clickable choices on the site (instead of free-text typing).
+#   bin/ask "вопрос" "вариант 1" "вариант 2" ...
+# Writes data/choices.json; the site renders buttons above the chat input. The
+# user's click is sent back as a normal /say message (which also clears the choice).
+python3 - "$@" <<'PY'
+import json, sys, time, pathlib
+q = sys.argv[1] if len(sys.argv) > 1 else ""
+opts = sys.argv[2:]
+pathlib.Path("/home/wera_n/GIT/iproject_menger/data/choices.json").write_text(
+    json.dumps({"q": q, "opts": opts, "ts": time.strftime("%H:%M:%S")}, ensure_ascii=False))
+print("asked:", q, "| options:", opts)
+PY

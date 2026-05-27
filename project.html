@@ -52,6 +52,10 @@
   .ptrace .st.hyp{border-left-color:#bc8cff}.ptrace .st.check{border-left-color:#58a6ff}.ptrace .st.found{border-left-color:#d29922}.ptrace .st.fix,.ptrace .st.done{border-left-color:#3fb950}
   .ptrace .st .k{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--mut)} .ptrace .st .y{color:var(--mut);font-size:11.5px}
   #act{flex:none;max-height:20vh;overflow:auto}   /* live-лента со своим скроллом — не распирает колонку */
+  #choices{display:none;margin:4px 0;padding:7px 9px;background:#10243d;border:1px solid var(--accent);border-radius:9px}
+  #choices .ch-q{font-size:12.5px;color:#cfe5ff;margin-bottom:6px;white-space:pre-wrap}
+  #choices .ch-b{background:#1f6feb;color:#fff;border:0;border-radius:14px;padding:5px 12px;margin:0 6px 4px 0;font-size:12.5px;cursor:pointer}
+  #choices .ch-b:hover{background:#388bfd}
   .cmdbar{display:flex;flex-wrap:wrap;gap:5px;padding:6px 10px;border-top:1px solid var(--line)}
   .chip{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:16px;padding:3px 9px;font-size:11.5px;cursor:pointer}
   .chip:hover{border-color:var(--accent)} .chip.cli{color:#e3b341;border-style:dashed}
@@ -114,6 +118,7 @@
     <div class="log" id="log"></div>
     <div class="think" id="think"><span class="dots"><i></i><i></i><i></i></span><span class="tx" id="thinktx">думаю…</span><span class="el" id="thinkel"></span></div>
     <div class="cmdbar" id="cmdbar"></div>
+    <div id="choices"></div>
     <form onsubmit="return send()"><label class="clip" title="прикрепить файл">📎<input type="file" accept="image/*" onchange="upimg(this)"></label><textarea id="in" rows="2" placeholder="спроси про проект… (Enter — отправить, Shift+Enter — строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button class="send">▶</button></form>
   </aside>
 </main>
@@ -289,7 +294,17 @@
       el.scrollTop=el.scrollHeight;
     }catch(e){}
   }
-  head(); render(); poll(); loadCommands(); pollStatus(); pollActivity(); setInterval(()=>{poll();pollPtrace();}, 3000);
-  setInterval(pollStatus, 1000); setInterval(pollActivity, 1500);
+  async function pollChoices(){
+    const el=document.getElementById("choices"); if(!el) return;
+    try{ const c=await (await fetch("/choices",{cache:"no-store"})).json();
+      if(c&&c.opts&&c.opts.length){ el.style.display="block";
+        el.innerHTML="<div class='ch-q'>"+esc(c.q||"")+"</div>"+c.opts.map(o=>"<button class='ch-b'>"+esc(o)+"</button>").join("");
+      } else { el.style.display="none"; el.innerHTML=""; }
+    }catch(e){}
+  }
+  document.getElementById("choices").addEventListener("click",e=>{ const b=e.target.closest(".ch-b");
+    if(b){ say(b.textContent); document.getElementById("choices").style.display="none"; } });
+  head(); render(); poll(); loadCommands(); pollStatus(); pollActivity(); pollChoices(); setInterval(()=>{poll();pollPtrace();}, 3000);
+  setInterval(pollStatus, 1000); setInterval(pollActivity, 1500); setInterval(pollChoices, 1500);
 </script>
 </body></html>

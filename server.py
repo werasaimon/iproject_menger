@@ -211,7 +211,12 @@ class H(http.server.BaseHTTPRequestHandler):
                 m = re.match(r"^\[([^\]]+)\]", t)   # [project] prefix → active project
                 if m: (DATA / "active_project").write_text(m.group(1).strip())
                 set_status(True, "получил сообщение, думаю…")
+                try: (DATA / "choices.json").unlink()   # a message resolves any pending choice
+                except FileNotFoundError: pass
             self._s(200, json.dumps({"ok": bool(t)})); return
+        if p == "/choices":
+            cf = DATA / "choices.json"
+            self._s(200, cf.read_text() if cf.is_file() else "{}"); return
         if p == "/status":
             try:
                 d = json.loads(STATUS.read_text()) if STATUS.exists() else {}

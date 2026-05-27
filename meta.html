@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>⚛ Физика кода</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;
+  --acc:#58a6ff;--add:#3fb950;--del:#f85149;--warn:#d29922;--pur:#bc8cff}
+*{box-sizing:border-box} html,body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font:13px/1.5 system-ui,sans-serif}
+header{padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header a{color:var(--acc);text-decoration:none;font-size:12px}
+h1{font-size:16px;margin:0}
+.subtitle{font-size:11px;color:var(--mut)}
+.badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#1f2630;border:1px solid var(--line)}
+main{padding:14px 16px;max-width:1400px;margin:0 auto}
+.kpi-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;min-width:140px;flex:1}
+.kpi .v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:11px;color:var(--mut);margin-top:2px}
+.kpi .sub{font-size:10px;color:var(--mut);margin-top:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card h2{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px;display:flex;align-items:center;gap:6px}
+.card h2 .icon{font-size:15px}
+.bar-row{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
+.bar-row .lbl{width:140px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+.bar-row .bar-wrap{flex:1;background:#0f1420;border-radius:4px;height:16px;position:relative;min-width:60px}
+.bar-row .bar-fill{display:block;height:100%;border-radius:4px;transition:.3s}
+.bar-row .val{width:64px;flex:none;text-align:right;font-family:ui-monospace,monospace;font-size:11px;color:var(--mut)}
+.bar-row .tag{font-size:10px;padding:1px 5px;border-radius:6px;flex:none}
+table{border-collapse:collapse;width:100%;font-size:12px}
+td,th{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}
+th{background:#1c2330;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+tr:hover td{background:#0f1420}
+.tag-iso{background:#0f2d14;color:#3fb950;border:1px solid #2a6b34}
+.tag-mono{background:#10243d;color:#58a6ff;border:1px solid #1f4a8a}
+.tag-epi{background:#2d1a00;color:#d29922;border:1px solid #5a3c00}
+.tag-forb{background:#2d0f0f;color:#f85149;border:1px solid #6b2020}
+.formula{font-family:ui-monospace,monospace;font-size:11px;color:var(--pur);background:#130d1f;border:1px solid #3b2060;border-radius:6px;padding:6px 10px;margin:6px 0}
+.insight{font-size:11.5px;color:#cfe5ff;background:#0d1b2e;border-left:3px solid var(--acc);border-radius:0 6px 6px 0;padding:6px 10px;margin:8px 0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <a id="back-link" href="/">← назад</a>
+  <h1>⚛ Физика кода</h1>
+  <span class="subtitle">Колмогоров · Шеннон · Ландауэр · Принцип наименьшего действия</span>
+  <span id="pname" class="badge"></span>
+  <span style="margin-left:auto;font-size:11px;color:var(--mut)" id="loadtime"></span>
+</header>
+<main>
+  <div id="kpi" class="kpi-row">
+    <div class="kpi"><div class="v" style="color:var(--pur)" id="kpi-s">…</div><div class="l">∑S · Действие</div><div class="sub">LOC × churn · min → идеал</div></div>
+    <div class="kpi"><div class="v" style="color:var(--acc)" id="kpi-h">…</div><div class="l">H_loc · Энтропия распр.</div><div class="sub">бит · равномерн. = max</div></div>
+    <div class="kpi"><div class="v" style="color:var(--warn)" id="kpi-k">…</div><div class="l">K̄ · Колмогоров (ср.)</div><div class="sub">gz/raw · ниже = сжимаемее</div></div>
+    <div class="kpi"><div class="v" style="color:var(--add)" id="kpi-iso">…</div><div class="l">Изоморфизмов</div><div class="sub">цена Ландауэра = 0</div></div>
+    <div class="kpi"><div class="v" style="color:var(--del)" id="kpi-epi">…</div><div class="l">Эпиморфизмов</div><div class="sub">платим kT·ln2 за каждый</div></div>
+    <div class="kpi"><div class="v" style="color:var(--mut)" id="kpi-coll">…</div><div class="l">Коллизий символов</div><div class="sub">один символ в N модулях</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2><span class="icon">⚡</span>Принцип наименьшего действия · S = LOC × churn</h2>
+      <div class="formula">S(модуль) = LOC(m) × commits(m)  →  min · высокий S = рефакторинг</div>
+      <div id="action-bars"></div>
+    </div>
+    <div class="card">
+      <h2><span class="icon">🔵</span>Колмогоров · K = gz/raw</h2>
+      <div class="formula">K̂(m) = |gzip(m)| / |m|  →  1 = несжимаем (информ.-насыщен)  ·  &lt;0.3 = повторы</div>
+      <div id="kolm-bars"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2><span class="icon">⟶</span>Морфизмы · категориальная структура</h2>
+      <div class="formula">iso: обратимо · Ландауэр=0 &nbsp;|&nbsp; mono: инъект. · сохраняет · epi: сюръект. · платит H</div>
+      <div id="morph-summary"></div>
+    </div>
+    <div class="card">
+      <h2><span class="icon">🌡</span>Ландауэр-операции · платим kT·ln₂ за каждый эпиморфизм</h2>
+      <div id="landauer-ops"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2><span class="icon">⚡</span>Коллизии символов · один символ в N модулях</h2>
+      <div class="insight">Коллизия = информационная избыточность. Одно имя → два кода → неопределённость. K(system) растёт.</div>
+      <div id="collisions"></div>
+    </div>
+    <div class="card">
+      <h2><span class="icon">📊</span>Плотность символов · функций на 100 LOC</h2>
+      <div class="formula">ρ(m) = symbols(m) / LOC(m) × 100  →  высокая = много маленьких функций = хорошо</div>
+      <div id="density-bars"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px" id="inv-card">
+    <h2><span class="icon">⚠️</span>Инверсии делегирования · canonical → legacy = нарушение</h2>
+    <div class="formula">ПРАВИЛО: canonical_method(…) должен содержать ЛОГИКУ, а не вызов legacy_method(). legacy = alias-присваивание, не def.</div>
+    <div id="inversions-block"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2><span class="icon">↩</span>Обратимость · reverse_score = 1 − void_ratio</h2>
+      <div class="formula">void(f) → Ландауэр стоимость kT·ln2/бит · reverse=1 = все функции возвращают значение</div>
+      <div id="reverse-bars"></div>
+    </div>
+    <div class="card">
+      <h2><span class="icon">📡</span>Ёмкость канала · branch_density + Fisher info</h2>
+      <div class="formula">C ≈ ветвей/100LOC · Fisher I = distinct_types/total_params → разнообразие входных сигналов</div>
+      <div id="fisher-bars"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <h2><span class="icon">📐</span>Полная таблица модулей · все метрики</h2>
+    <div style="overflow-x:auto"><table id="mod-table">
+      <thead><tr><th>модуль</th><th>LOC</th><th>churn</th><th>S</th><th>K̂</th><th>reverse</th><th>branch/100L</th><th>Fisher I</th></tr></thead>
+      <tbody id="mod-tbody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon">⟿</span>Физические законы · текущее состояние кода</h2>
+    <div id="laws"></div>
+  </div>
+</main>
+
+<script>
+const P = new URLSearchParams(location.search).get("p") || "";
+document.getElementById("pname").textContent = P || "(нет проекта)";
+if(P) document.getElementById("back-link").href = "/p?name=" + encodeURIComponent(P);
+
+const esc = s => (''+s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+function bar(val, max, color, label, extra=""){
+  const pct = max > 0 ? Math.min(100, val/max*100) : 0;
+  return `<div class="bar-row">
+    <span class="lbl" title="${esc(label)}">${esc(label)}</span>
+    <span class="bar-wrap"><span class="bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></span></span>
+    <span class="val">${typeof val==='number'&&val>100?val.toLocaleString():typeof val==='number'?val.toFixed(val<10?2:0):val}</span>
+    ${extra}
+  </div>`;
+}
+
+function actionColor(s, maxS){
+  const r = s / maxS;
+  if(r > 0.7) return "#f85149";
+  if(r > 0.4) return "#d29922";
+  return "#3fb950";
+}
+
+function kolmColor(k){
+  if(k < 0.35) return "#f85149";  // очень сжимаем = много повторов
+  if(k < 0.55) return "#d29922";
+  return "#3fb950";                // плотный = информационно насыщен
+}
+
+async function load(){
+  const t0 = Date.now();
+  const r = await fetch("/api/meta?p="+encodeURIComponent(P), {cache:"no-store"});
+  const d = await r.json();
+  document.getElementById("loadtime").textContent = (Date.now()-t0)+" мс";
+
+  const mods = d.modules || [];
+  const maxS = Math.max(...mods.map(m=>m.action_s), 1);
+  const maxLOC = Math.max(...mods.map(m=>m.loc), 1);
+  const maxDens = Math.max(...mods.map(m=>m.sym_density), 1);
+  const totalS = mods.reduce((a,m)=>a+m.action_s,0);
+  const avgK = mods.length ? mods.reduce((a,m)=>a+m.kolmogorov,0)/mods.length : 0;
+
+  // KPI
+  document.getElementById("kpi-s").textContent = totalS.toLocaleString();
+  document.getElementById("kpi-h").textContent = d.h_loc?.toFixed(2) ?? "—";
+  document.getElementById("kpi-k").textContent = avgK.toFixed(2);
+  document.getElementById("kpi-iso").textContent = d.morphisms?.iso ?? 0;
+  document.getElementById("kpi-epi").textContent = d.morphisms?.epi ?? 0;
+  document.getElementById("kpi-coll").textContent = (d.collisions||[]).length;
+
+  // Action bars
+  document.getElementById("action-bars").innerHTML =
+    mods.slice(0,12).map(m=>bar(m.action_s, maxS, actionColor(m.action_s,maxS), m.name,
+      `<span class="tag ${m.action_s/maxS>0.5?'tag-epi':m.action_s/maxS>0.25?'tag-mono':'tag-iso'}">${m.churn}c</span>`
+    )).join("");
+
+  // Kolmogorov bars
+  document.getElementById("kolm-bars").innerHTML =
+    mods.slice(0,12).map(m=>bar(m.kolmogorov, 1, kolmColor(m.kolmogorov), m.name,
+      `<span class="tag ${m.kolmogorov<0.4?'tag-epi':m.kolmogorov<0.6?'tag-mono':'tag-iso'}">${(m.kolmogorov*100).toFixed(0)}%</span>`
+    )).join("");
+
+  // Density bars
+  document.getElementById("density-bars").innerHTML =
+    mods.slice(0,12).map(m=>bar(m.sym_density, maxDens, "#bc8cff", m.name)).join("");
+
+  // Morphisms
+  const mo = d.morphisms || {};
+  const tot = mo.total_edges || 1;
+  document.getElementById("morph-summary").innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      ${[["iso","изоморфизм","#3fb950","tag-iso"],["mono","мономорфизм","#58a6ff","tag-mono"],
+         ["epi","эпиморфизм","#d29922","tag-epi"],["forbidden","запрещённых","#f85149","tag-forb"]]
+        .map(([k,label,c,cls])=>`<div style="text-align:center">
+          <div style="font-size:22px;font-weight:700;color:${c}">${mo[k]||0}</div>
+          <div class="tag ${cls}" style="font-size:10px">${label}</div>
+          <div style="font-size:10px;color:var(--mut)">${((mo[k]||0)/tot*100).toFixed(0)}%</div>
+        </div>`).join("")}
+    </div>
+    ${bar(mo.iso||0, tot, "#3fb950", "изоморфизмы (Ландауэр=0)")}
+    ${bar(mo.mono||0, tot, "#58a6ff", "мономорфизмы (инъекция)")}
+    ${bar(mo.epi||0, tot, "#d29922", "эпиморфизмы (платим H)")}
+    <div class="insight">Цель: максимизировать долю iso + mono → минимизировать Ландауэр-стоимость системы.</div>
+  `;
+
+  // Landauer ops
+  const lops = d.landauer_ops || [];
+  document.getElementById("landauer-ops").innerHTML = lops.length
+    ? `<table><thead><tr><th>операция</th><th>почему платим H</th></tr></thead><tbody>` +
+      lops.map(o=>`<tr><td style="font-family:monospace;color:#d29922">${esc(o.op)}</td><td style="font-size:11px;color:var(--mut)">${esc(o.why||"эпиморфизм — потеря информации")}</td></tr>`).join("") +
+      `</tbody></table>` +
+      `<div class="insight">Каждый эпиморфизм = явный выбор. Документируй почему нельзя сохранить обратимость.</div>`
+    : `<span style="color:var(--mut);font-size:12px">нет данных из brain-графов — добавь morphisms.jsonl</span>`;
+
+  // Collisions
+  const cols = d.collisions || [];
+  document.getElementById("collisions").innerHTML = cols.length
+    ? `<table><thead><tr><th>символ</th><th>модули</th><th>N</th></tr></thead><tbody>` +
+      cols.slice(0,12).map(c=>`<tr><td style="font-family:monospace;color:#bc8cff">${esc(c.symbol)}</td>
+        <td style="font-size:11px">${c.modules.map(m=>`<span class="tag tag-mono" style="margin:1px">${esc(m)}</span>`).join(" ")}</td>
+        <td style="color:${c.count>2?'#f85149':'#d29922'};font-weight:700">${c.count}</td></tr>`).join("") +
+      `</tbody></table>`
+    : `<span style="color:#3fb950;font-size:12px">✓ коллизий не обнаружено</span>`;
+
+  // Reversibility bars (higher = better)
+  const maxBranch = Math.max(...mods.map(m=>m.branch_density||0), 1);
+  document.getElementById("reverse-bars").innerHTML =
+    mods.slice(0,12).map(m=>{
+      const rv = m.reverse_score ?? (1-(m.void_ratio||0));
+      const c = rv > 0.7 ? "#3fb950" : rv > 0.4 ? "#d29922" : "#f85149";
+      return bar(rv, 1, c, m.name,
+        `<span class="tag ${rv>0.7?'tag-iso':rv>0.4?'tag-mono':'tag-epi'}">${(rv*100).toFixed(0)}%</span>`);
+    }).join("") + `<div class="insight">reverse=1 → все функции возвращают значение (iso/mono). reverse=0 → все void (Ландауэр-стоки).</div>`;
+
+  // Fisher info + branch density bars
+  document.getElementById("fisher-bars").innerHTML =
+    mods.slice(0,12).map(m=>{
+      const fi = m.fisher_density||0;
+      const bd = m.branch_density||0;
+      return `<div class="bar-row">
+        <span class="lbl" title="${esc(m.name)}">${esc(m.name)}</span>
+        <span class="bar-wrap" style="position:relative">
+          <span class="bar-fill" style="width:${Math.min(100,fi*100).toFixed(1)}%;background:#58a6ff;opacity:.8"></span>
+        </span>
+        <span class="val" style="min-width:90px;font-size:10.5px">I=${fi.toFixed(2)} B=${bd.toFixed(1)}</span>
+      </div>`;
+    }).join("") + `<div class="insight">Fisher I = уникальных типов / всех параметров. Выше = больше информации на входе. B = ветвей/100LOC.</div>`;
+
+  // Full table
+  document.getElementById("mod-tbody").innerHTML = mods.map(m=>`<tr>
+    <td style="font-family:monospace;color:var(--acc)">${esc(m.name)}</td>
+    <td>${m.loc.toLocaleString()}</td>
+    <td style="color:var(--warn)">${m.churn}</td>
+    <td style="color:${actionColor(m.action_s,maxS)};font-weight:700">${m.action_s.toLocaleString()}</td>
+    <td style="color:${kolmColor(m.kolmogorov)}">${m.kolmogorov}</td>
+    <td style="color:${(m.reverse_score||0)>0.6?'#3fb950':'#f85149'}">${((m.reverse_score||0)*100).toFixed(0)}%</td>
+    <td style="color:var(--mut)">${(m.branch_density||0).toFixed(1)}</td>
+    <td style="color:#58a6ff">${(m.fisher_density||0).toFixed(2)}</td>
+  </tr>`).join("");
+
+  // Laws
+  const laws = [
+    {icon:"⚡", name:"Принцип наименьшего действия",
+     ok: totalS < 50000,
+     ok_text: `∑S = ${totalS.toLocaleString()} · код стабилен и компактен`,
+     fail_text: `∑S = ${totalS.toLocaleString()} · есть модули с высоким LOC×churn — кандидаты на рефакторинг`,
+     formula:"S = Σ LOC(m)×churn(m) → min"},
+    {icon:"🔵", name:"Колмогоров · минимальное описание",
+     ok: avgK > 0.5,
+     ok_text: `K̄ = ${avgK.toFixed(2)} · код информационно насыщен, мало повторов`,
+     fail_text: `K̄ = ${avgK.toFixed(2)} · высокая сжимаемость → есть повторяющиеся паттерны`,
+     formula:"K̂(m) = gz(m)/raw(m) → 1 (несжимаем = уникален)"},
+    {icon:"♻️", name:"Ландауэр · изоморфизмы бесплатны",
+     ok: (mo.iso||0) >= (mo.epi||0),
+     ok_text: `iso(${mo.iso||0}) ≥ epi(${mo.epi||0}) · большинство морфизмов обратимы`,
+     fail_text: `epi(${mo.epi||0}) > iso(${mo.iso||0}) · платим энтропию — каждый эпиморфизм должен быть обоснован`,
+     formula:"ΔE = kT·ln2 × Δbits · iso → ΔE=0"},
+    {icon:"📡", name:"Шеннон · энтропия распределения",
+     ok: (d.h_loc||0) > 1.5,
+     ok_text: `H = ${(d.h_loc||0).toFixed(2)} бит · код распределён равномерно по модулям`,
+     fail_text: `H = ${(d.h_loc||0).toFixed(2)} бит · сильная концентрация LOC в одном модуле — God Object`,
+     formula:"H = -Σ p(m)·log₂p(m) · max при равном распр."},
+    {icon:"⊘", name:"Коллизии · нулевая избыточность",
+     ok: cols.length === 0,
+     ok_text: "коллизий символов нет · каждое имя уникально",
+     fail_text: `${cols.length} коллизий · ${cols.slice(0,3).map(c=>c.symbol).join(", ")}... — разные реализации под одним именем`,
+     formula:"∀ символ s: |{модули содержащие s}| = 1"},
+    {icon:"↩", name:"Обратимость · Ландауэр по функциям",
+     ok: (()=>{ const avg=mods.reduce((a,m)=>a+(m.reverse_score||0),0)/(mods.length||1); return avg>0.5; })(),
+     ok_text: `avg reverse = ${(mods.reduce((a,m)=>a+(m.reverse_score||0),0)/(mods.length||1)*100).toFixed(0)}% · большинство функций возвращают значение`,
+     fail_text: `avg reverse = ${(mods.reduce((a,m)=>a+(m.reverse_score||0),0)/(mods.length||1)*100).toFixed(0)}% · преобладают void-функции → Ландауэр-стоки → высокая стоимость вычислений`,
+     formula:"reverse(m) = non_void_funcs / total_funcs → 1 (max обратимость)"},
+    {icon:"🎛", name:"Fisher информация · разнообразие входов",
+     ok: (()=>{ const avg=mods.reduce((a,m)=>a+(m.fisher_density||0),0)/(mods.length||1); return avg>0.25; })(),
+     ok_text: `avg Fisher I = ${(mods.reduce((a,m)=>a+(m.fisher_density||0),0)/(mods.length||1)).toFixed(2)} · параметры несут разнообразную информацию`,
+     fail_text: `avg Fisher I = ${(mods.reduce((a,m)=>a+(m.fisher_density||0),0)/(mods.length||1)).toFixed(2)} · однотипные параметры → низкая информационная ёмкость интерфейсов`,
+     formula:"I(m) = |distinct_types| / total_params → max разнообразие"},
+  ];
+  // Inversions
+  const invs = d.inversions || [];
+  const invCard = document.getElementById("inv-card");
+  if(invs.length){
+    invCard.style.borderColor="#f85149";
+    document.getElementById("inversions-block").innerHTML =
+      `<div class="insight" style="border-left-color:#f85149;background:#1a0f0f;color:#ff7b72">
+        ✗ Найдено ${invs.length} инверсий — canonical метод вызывает legacy. Кто-то должен был это поймать.
+      </div>` +
+      `<table><thead><tr><th>canonical</th><th>вызывает legacy</th><th>файл:строка</th><th>фрагмент</th></tr></thead><tbody>` +
+      invs.map(v=>`<tr>
+        <td style="color:#3fb950;font-family:monospace">${esc(v.canonical)}</td>
+        <td style="color:#f85149;font-family:monospace">self.${esc(v.legacy)}</td>
+        <td style="color:var(--acc);font-size:11px;font-family:monospace">${esc(v.file)}:${v.line}</td>
+        <td style="font-size:11px;color:var(--mut)">${esc(v.snippet)}</td>
+      </tr>`).join("") + `</tbody></table>`;
+  } else {
+    invCard.style.borderColor="#3fb950";
+    document.getElementById("inversions-block").innerHTML =
+      `<div class="insight">✓ Инверсий не найдено — все canonical методы содержат логику, legacy — только алиасы.</div>`;
+  }
+
+  document.getElementById("laws").innerHTML = laws.map(l=>`
+    <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)">
+      <span style="font-size:18px;flex:none">${l.icon}</span>
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:12.5px">${l.name}</div>
+        <div class="formula" style="margin:3px 0">${esc(l.formula)}</div>
+        <div class="${l.ok?'insight':''}" style="${l.ok?'':'border-left:3px solid #f85149;background:#1a0f0f;border-radius:0 6px 6px 0;padding:5px 10px;margin:4px 0;font-size:11.5px;color:#ff7b72'}">${l.ok?"✓ ":""} ${l.ok?l.ok_text:l.fail_text}</div>
+      </div>
+    </div>`).join("");
+}
+
+if(P) load().catch(e=>{document.querySelector("main").innerHTML="<p style='color:#f85149;padding:20px'>"+e+"</p>";});
+else document.querySelector("main").innerHTML="<p style='color:var(--mut);padding:20px'>укажи ?p=имя-проекта</p>";
+</script>
+</body></html>

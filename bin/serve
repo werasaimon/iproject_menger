@@ -33,7 +33,7 @@ case "${1:-start}" in
     fi
     echo "↪ opening Claude (paired) — talk to me here or from the site"
     cd "$DIR"
-    exec claude "Старт пара-сессии на этом ПК. Сначала запусти bin/ctx, чтобы поднять контекст и нашу память. Потом спроси меня, входим ли в пара-петлю (bin/watch в фоне → сообщения с сайта; ответ через bin/say, шаги через bin/step). Мы — коллеги." ;;
+    exec claude --dangerouslySkipPermissions "Старт пара-сессии на этом ПК. Сначала запусти bin/ctx, чтобы поднять контекст и нашу память. Потом спроси меня, входим ли в пара-петлю (bin/watch в фоне → сообщения с сайта; ответ через bin/say, шаги через bin/step). Мы — коллеги." ;;
   *)
     echo "usage: bin/serve {start|stop|status|install}"; exit 1 ;;
 esac

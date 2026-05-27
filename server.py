@@ -17,7 +17,7 @@ LAN) and the Claude Code agent watching `data/inbox_new`.
 Read-only git: whitelisted subcommands only, project must be registered, sha is
 hex-validated, file paths confined to the project root. LAN only.
 """
-import http.server, socketserver, urllib.parse, pathlib, json, time, subprocess, re, os, datetime
+import http.server, socketserver, urllib.parse, pathlib, json, time, subprocess, re, os, datetime, gzip, math
 
 BASE   = pathlib.Path(__file__).resolve().parent
 DATA   = BASE / "data"
@@ -38,9 +38,11 @@ def set_status(busy, text=""):
         pass
 
 PROJECTS = {
-    "depz-toolkit":    pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
-    "istereolab-sdk":  pathlib.Path("/home/wera_n/GIT/istereolab-sdk"),
-    "iproject_menger": BASE,   # self-managed: the manager is itself a project
+    "depz-toolkit":          pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
+    "istereolab-sdk":        pathlib.Path("/home/wera_n/GIT/istereolab-sdk"),
+    "depz-camera-sdk":       pathlib.Path("/home/wera_n/GIT/depz-camera-sdk"),
+    "ifirmware-stereocam":   pathlib.Path("/home/wera_n/GIT/ifirmware-stereocam"),
+    "iproject_menger":       BASE,
 }
 SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
 
@@ -195,6 +197,253 @@ class H(http.server.BaseHTTPRequestHandler):
                 self._s(200, json.dumps({"path": rel, "size": sz, "text": "(binary file)"})); return
             self._s(200, json.dumps({"path": rel, "size": sz, "text": txt}, ensure_ascii=False)); return
 
+        if p == "/api/meta":
+            name = q.get("p", "")
+            if name not in PROJECTS:
+                self._s(400, json.dumps({"error": "unknown"})); return
+            proj = PROJECTS[name]
+            SRC_EXTS = {".py", ".cpp", ".h", ".hpp", ".c"}
+            SKIP_DIRS = {".git", "build", "build_sdk", ".venv", "__pycache__",
+                         "dist", "deploy", "staging", "node_modules", ".eggs", ".cache"}
+
+            # --- collect files per top-level module dir ---
+            modules = {}
+            for f in proj.rglob("*"):
+                if f.is_dir(): continue
+                if f.suffix not in SRC_EXTS: continue
+                parts = f.relative_to(proj).parts
+                if any(p in SKIP_DIRS for p in parts): continue
+                mod = parts[0] if len(parts) > 1 else "(root)"
+                modules.setdefault(mod, {"files": [], "loc": 0, "raw_bytes": 0, "gz_bytes": 0, "symbols": 0})
+                try:
+                    txt = f.read_bytes()
+                    lines = txt.count(b"\n")
+                    gz = len(gzip.compress(txt, compresslevel=9))
+                    sym = len(re.findall(rb'(?:def |void |bool |int |auto |float )\s+\w+\s*\(', txt))
+                    modules[mod]["files"].append(str(f.relative_to(proj)))
+                    modules[mod]["loc"] += lines
+                    modules[mod]["raw_bytes"] += len(txt)
+                    modules[mod]["gz_bytes"] += gz
+                    modules[mod]["symbols"] += sym
+                except Exception: pass
+
+            # --- git churn per module dir ---
+            try:
+                raw = git(proj, "log", "--no-color", "--numstat",
+                          "--pretty=tformat:%H", "-80")
+                cur_files = {}
+                for ln in raw.splitlines():
+                    ln = ln.strip()
+                    if re.match(r'^[0-9a-f]{40}$', ln):
+                        cur_files = {}; continue
+                    parts = ln.split("\t")
+                    if len(parts) == 3 and parts[0].isdigit():
+                        top = parts[2].split("/")[0]
+                        cur_files[top] = True
+                # count commits touching each top dir
+                churn = {}
+                raw2 = git(proj, "log", "--no-color", "--name-only",
+                           "--pretty=tformat:%H", "-80")
+                commit_mods = set()
+                for ln in raw2.splitlines():
+                    ln = ln.strip()
+                    if not ln: continue
+                    if re.match(r'^[0-9a-f]{40}$', ln):
+                        for m in commit_mods: churn[m] = churn.get(m, 0) + 1
+                        commit_mods = set(); continue
+                    top = ln.split("/")[0]
+                    commit_mods.add(top)
+                for m in commit_mods: churn[m] = churn.get(m, 0) + 1
+            except Exception:
+                churn = {}
+
+            # --- shannon entropy of LOC distribution ---
+            total_loc = sum(v["loc"] for v in modules.values()) or 1
+            h_loc = 0.0
+            for v in modules.values():
+                p_i = v["loc"] / total_loc
+                if p_i > 0: h_loc -= p_i * math.log2(p_i)
+
+            # --- build result modules list ---
+            mod_list = []
+            for mod, v in sorted(modules.items(), key=lambda x: -x[1]["loc"]):
+                if v["loc"] == 0: continue
+                c = churn.get(mod, 0)
+                k_ratio = round(v["gz_bytes"] / v["raw_bytes"], 3) if v["raw_bytes"] else 1.0
+                action_s = v["loc"] * max(c, 1)
+                mod_list.append({
+                    "name": mod, "loc": v["loc"], "churn": c,
+                    "action_s": action_s,
+                    "symbols": v["symbols"],
+                    "sym_density": round(v["symbols"] / (v["loc"] / 100), 2) if v["loc"] else 0,
+                    "kolmogorov": k_ratio,   # gz/raw: lower = more compressible = repetitive
+                    "files": len(v["files"])
+                })
+            mod_list.sort(key=lambda x: -x["action_s"])
+
+            # --- reversibility · branch density · Fisher information ---
+            # void_ratio   = void_funcs / total_funcs  → 1 = all sinks (pay Landauer)
+            # reverse_score = 1 - void_ratio
+            # branch_density = branches per 100 LOC    → proxy for channel capacity C
+            # fisher_density = distinct param types / total param tokens → info diversity
+            for entry in mod_list:
+                mod = entry["name"]
+                void_f = non_void_f = branches = params_total = 0
+                params_distinct: set = set()
+                for rel_f in modules[mod]["files"]:
+                    fp = proj / rel_f
+                    if not fp.exists(): continue
+                    try:
+                        txt = fp.read_text(errors="replace")
+                        for ln in txt.splitlines():
+                            s = ln.strip()
+                            if s.startswith("//") or s.startswith("#"): continue
+                            if re.search(r'\bvoid\s+\w+\s*\(', ln):   void_f += 1
+                            elif re.search(r'\b(?:bool|int|float|double|auto|std::\w+|string)\s+\w+\s*\(', ln):
+                                non_void_f += 1
+                            if re.search(r'\bif\s*[({\s]|\bswitch\s*\(|\belif\b', ln): branches += 1
+                            m2 = re.search(r'\(([^)]{0,200})\)', ln)
+                            if m2:
+                                for tok in re.findall(r'\b[A-Za-z_]\w*\b', m2.group(1)):
+                                    if tok not in {"const","unsigned","signed","long","short",
+                                                   "struct","class","self","cls","int","bool",
+                                                   "void","float","double","auto"}:
+                                        params_total += 1; params_distinct.add(tok)
+                    except Exception: pass
+                total_f = void_f + non_void_f
+                entry["void_ratio"]     = round(void_f / total_f, 3) if total_f else 0.0
+                entry["reverse_score"]  = round(1 - entry["void_ratio"], 3)
+                entry["branch_density"] = round(branches / (entry["loc"] / 100), 2) if entry["loc"] else 0.0
+                entry["fisher_density"] = round(len(params_distinct) / params_total, 3) if params_total else 0.0
+
+            # --- brain graph morphism summary ---
+            morphisms = {"iso": 0, "mono": 0, "epi": 0, "forbidden": 0, "total_edges": 0}
+            landauer_ops = []
+            bd = DATA / "brain" / name
+            if bd.is_dir():
+                for jf in bd.glob("*.jsonl"):
+                    for ln in jf.read_text().splitlines():
+                        try:
+                            o = json.loads(ln)
+                            if o.get("t") == "edge":
+                                morphisms["total_edges"] += 1
+                                rel = (o.get("rel") or "").lower()
+                                if "изо" in rel or "iso" in rel: morphisms["iso"] += 1
+                                elif "моно" in rel or "mono" in rel: morphisms["mono"] += 1
+                                elif "эпи" in rel or "epi" in rel: morphisms["epi"] += 1
+                                if o.get("ok") is False: morphisms["forbidden"] += 1
+                                if "эпи" in rel or "epi" in rel:
+                                    landauer_ops.append({"op": o.get("from","")+"→"+o.get("to",""),
+                                                         "why": o.get("why","")})
+                        except Exception: pass
+
+            # --- collision detection: symbols appearing in >1 file ---
+            collisions = []
+            try:
+                r2 = subprocess.run(
+                    ["grep", "-rn", "--color=never",
+                     "--include=*.py", "--include=*.cpp", "--include=*.h",
+                     "--exclude-dir=.venv","--exclude-dir=build","--exclude-dir=.git",
+                     r"def \|void \|bool \|int \|auto ", str(proj)],
+                    capture_output=True, text=True, timeout=5)
+                sym_files: dict = {}
+                for ln in r2.stdout.splitlines():
+                    m2 = re.search(r'(?:def |void |bool |int |auto |float )\s+(\w+)\s*\(', ln)
+                    if not m2: continue
+                    sym = m2.group(1)
+                    if sym in ("main","self","cls","init","int","bool","float","void"): continue
+                    fp = ln.split(":")[0]
+                    rel = str(pathlib.Path(fp).relative_to(proj)) if fp.startswith(str(proj)) else fp
+                    sym_files.setdefault(sym, set()).add(rel.split("/")[0])
+                for sym, mods in sym_files.items():
+                    if len(mods) > 1:
+                        collisions.append({"symbol": sym, "modules": sorted(mods), "count": len(mods)})
+                collisions.sort(key=lambda x: -x["count"])
+            except Exception: pass
+
+            # --- delegation inversion detector ---
+            # Finds methods where a "canonical" name delegates to a "legacy" name
+            # (e.g. control_set calls self.knob_set → wrong direction).
+            # Correct direction: legacy = canonical (alias assignment, not a def that calls back).
+            inversions = []
+            ALIAS_PAIRS = [
+                ("control_get",      "knob_get"),
+                ("control_set",      "knob_set"),
+                ("controls_to_dict", "knobs_to_dict"),
+                ("list_filter_controls", "list_filter_knobs"),
+                ("camera_control_names", "camera_knob_names"),
+                ("is_camera_control",    "is_camera_knob"),
+            ]
+            try:
+                py_files = [f for f in proj.rglob("*.py")
+                            if not any(p in SKIP_DIRS for p in f.relative_to(proj).parts)]
+                for pf in py_files:
+                    txt = pf.read_text(errors="replace")
+                    lines = txt.splitlines()
+                    rel = str(pf.relative_to(proj))
+                    in_def = None; def_start = 0
+                    for i, ln in enumerate(lines):
+                        m = re.match(r'\s+def (\w+)\s*\(', ln)
+                        if m:
+                            in_def = m.group(1); def_start = i + 1; continue
+                        if in_def and re.match(r'\s+def |\S', ln) and not ln.strip().startswith(("#","\"","'")):
+                            in_def = None
+                        if in_def:
+                            for canonical, legacy in ALIAS_PAIRS:
+                                if in_def == canonical and re.search(r'\bself\.' + legacy + r'\b', ln):
+                                    inversions.append({
+                                        "file": rel, "line": i + 1,
+                                        "canonical": canonical, "legacy": legacy,
+                                        "snippet": ln.strip()[:100]
+                                    })
+            except Exception: pass
+
+            self._s(200, json.dumps({
+                "modules": mod_list[:20],
+                "h_loc": round(h_loc, 3),
+                "morphisms": morphisms,
+                "landauer_ops": landauer_ops[:10],
+                "collisions": collisions[:15],
+                "total_loc": total_loc,
+                "inversions": inversions[:20],
+            }, ensure_ascii=False)); return
+
+        if p == "/api/find":
+            name = q.get("p", ""); query = q.get("q", "").strip()
+            if name not in PROJECTS or not query or len(query) > 120:
+                self._s(200, json.dumps([])); return
+            proj = PROJECTS[name]
+            exts = ["*.py","*.cpp","*.h","*.hpp","*.c","*.ts","*.js","*.java","*.rs","*.go","*.yaml","*.json","*.md"]
+            includes = []
+            for e in exts: includes += ["--include", e]
+            try:
+                skip = ["--exclude-dir=.venv","--exclude-dir=build","--exclude-dir=build_sdk",
+                        "--exclude-dir=__pycache__","--exclude-dir=.git","--exclude-dir=dist",
+                        "--exclude-dir=node_modules","--exclude-dir=.eggs","--exclude-dir=deploy",
+                        "--exclude-dir=staging","--exclude-dir=.cache"]
+                r = subprocess.run(
+                    ["grep", "-rn", "--color=never"] + skip + includes + [query, str(proj)],
+                    capture_output=True, text=True, timeout=5)
+                hits, seen = [], set()
+                for ln in r.stdout.splitlines()[:60]:
+                    parts = ln.split(":", 2)
+                    if len(parts) < 3: continue
+                    fpath, lineno, snippet = parts[0], parts[1], parts[2].strip()
+                    rel = str(pathlib.Path(fpath).relative_to(proj))
+                    if rel in seen: continue
+                    seen.add(rel)
+                    exact = bool(re.search(r'\b' + re.escape(query) + r'\b', snippet))
+                    hits.append({"file": rel, "line": int(lineno), "snippet": snippet[:120], "exact": exact})
+                def _rank(h):
+                    ext = pathlib.Path(h["file"]).suffix.lower()
+                    src = 0 if ext in (".cpp",".h",".hpp",".c",".py",".ts",".js",".java",".rs",".go") else 1
+                    return (0 if h["exact"] else 1, src, len(h["file"]))
+                hits.sort(key=_rank)
+                self._s(200, json.dumps(hits[:5], ensure_ascii=False))
+            except Exception as e:
+                self._s(200, json.dumps([]))
+            return
+
         if p.startswith("/up/"):
             f = (DATA / "uploads" / p[4:]).resolve()
             if str(f).startswith(str((DATA / "uploads").resolve()) + os.sep) and f.is_file():
@@ -204,16 +453,28 @@ class H(http.server.BaseHTTPRequestHandler):
         # ── pair chat ──
         if p == "/say":
             t = q.get("text", "").strip()
-            if t:
+            img_raw = q.get("img", "").strip()
+            imgs = [x.strip() for x in img_raw.split(",") if x.strip()] if img_raw else []
+            if t or imgs:
+                entry = {"ts": time.strftime("%H:%M:%S"),
+                         "text": t or ("📎 " + ", ".join(x.split("/")[-1] for x in imgs))}
+                if imgs:
+                    entry["imgs"] = imgs
+                    if len(imgs) == 1:
+                        entry["img"] = imgs[0]   # backward compat for single-img log renderer
                 with INBOX.open("a") as f:
-                    f.write(json.dumps({"ts": time.strftime("%H:%M:%S"), "text": t}, ensure_ascii=False) + "\n")
-                NEW.write_text(t)
-                m = re.match(r"^\[([^\]]+)\]", t)   # [project] prefix → active project
-                if m: (DATA / "active_project").write_text(m.group(1).strip())
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                files_str = " ".join("[file: " + str(BASE / x) + "]" for x in imgs)
+                inbox_text = (t + " " + files_str).strip() if t else files_str
+                if not inbox_text: inbox_text = t
+                NEW.write_text(inbox_text)
+                if t:
+                    m = re.match(r"^\[([^\]]+)\]", t)   # [project] prefix → active project
+                    if m: (DATA / "active_project").write_text(m.group(1).strip())
                 set_status(True, "получил сообщение, думаю…")
                 try: (DATA / "choices.json").unlink()   # a message resolves any pending choice
                 except FileNotFoundError: pass
-            self._s(200, json.dumps({"ok": bool(t)})); return
+            self._s(200, json.dumps({"ok": bool(t or imgs)})); return
         if p == "/choices":
             cf = DATA / "choices.json"
             self._s(200, cf.read_text() if cf.is_file() else "{}"); return
@@ -280,16 +541,31 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == "/api/commands":
             cf = DATA / "commands.json"
             self._s(200, cf.read_text() if cf.exists() else "[]"); return
-        if p == "/api/brain":
+        if p == "/api/brain/list":
             name = q.get("p", "")
+            graphs = []
+            bd = DATA / "brain" / name
+            if name in PROJECTS and bd.is_dir():
+                graphs = sorted(f.stem for f in bd.glob("*.jsonl"))
+            self._s(200, json.dumps(graphs, ensure_ascii=False)); return
+        if p == "/api/brain":
+            name = q.get("p", ""); gname = q.get("g", "")
             nodes = []; edges = []
-            bf = DATA / "brain" / (name + ".jsonl")
-            if name in PROJECTS and bf.is_file():
-                for ln in bf.read_text().splitlines():
-                    try:
-                        o = json.loads(ln)
-                        (edges if o.get("t") == "edge" else nodes).append(o)
-                    except Exception: pass
+            # new layout: data/brain/<project>/<graph>.jsonl
+            bd = DATA / "brain" / name
+            if name in PROJECTS and bd.is_dir():
+                if not gname:
+                    files = sorted(bd.glob("*.jsonl"))
+                    bf = files[0] if files else None
+                else:
+                    bf = bd / (gname + ".jsonl")
+                    bf = bf if bf.is_file() else None
+                if bf and bf.is_file():
+                    for ln in bf.read_text().splitlines():
+                        try:
+                            o = json.loads(ln)
+                            (edges if o.get("t") == "edge" else nodes).append(o)
+                        except Exception: pass
             self._s(200, json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)); return
         if p == "/api/hypotheses":
             name = q.get("p", ""); items = []
@@ -320,6 +596,18 @@ class H(http.server.BaseHTTPRequestHandler):
                     except Exception: pass
                 hf.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in out) + "\n")
             self._s(200, json.dumps({"ok": True})); return
+        if p == "/hyp/delete":
+            name = q.get("p", ""); hid = q.get("id", "")
+            hf = DATA / "hypotheses" / (name + ".jsonl")
+            if name in PROJECTS and hf.is_file() and hid:
+                out = []
+                for ln in hf.read_text().splitlines():
+                    try:
+                        o = json.loads(ln)
+                        if o.get("id") != hid: out.append(o)
+                    except Exception: pass
+                hf.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in out) + ("\n" if out else ""))
+            self._s(200, json.dumps({"ok": True})); return
         if p == "/judgement":
             name = q.get("p", "")
             if name in PROJECTS:
@@ -335,6 +623,19 @@ class H(http.server.BaseHTTPRequestHandler):
         name = p.lstrip("/")
         if name.endswith(".html") and "/" not in name:
             if self._page(name): return
+        # serve graphs/ and static/ subdirectories (path-traversal safe)
+        STATIC_DIRS = {"graphs": (GRAPHS, "text/html; charset=utf-8"),
+                       "static": (BASE / "static", None)}
+        MIME = {".js": "application/javascript", ".css": "text/css",
+                ".html": "text/html; charset=utf-8", ".json": "application/json"}
+        parts = name.split("/", 1)
+        if len(parts) == 2 and parts[0] in STATIC_DIRS:
+            base_dir, forced_ctype = STATIC_DIRS[parts[0]]
+            target = (base_dir / parts[1]).resolve()
+            if str(target).startswith(str(base_dir.resolve())) and target.is_file():
+                ext = target.suffix.lower()
+                ct = forced_ctype or MIME.get(ext, "application/octet-stream")
+                self._s(200, target.read_bytes(), ct); return
         self._s(404, "no")
 
     def do_POST(self):
@@ -353,14 +654,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 fn = time.strftime("%H%M%S") + "_" + str(int(time.time() * 1000))[-4:] + "." + ext
                 (DATA / "uploads" / fn).write_bytes(data)
                 rel = "data/uploads/" + fn
-                ctx = q.get("p", "")
-                with INBOX.open("a") as f:
-                    f.write(json.dumps({"ts": time.strftime("%H:%M:%S"),
-                        "text": "📎 " + fname + ((" [" + ctx + "]") if ctx else ""),
-                        "img": rel}, ensure_ascii=False) + "\n")
-                NEW.write_text("[file] " + str(BASE / rel) + ((" [" + ctx + "]") if ctx else ""))
-                set_status(True, "смотрю присланный файл…")
-                self._s(200, json.dumps({"ok": True, "path": rel}))
+                is_img = ext in ("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif")
+                # don't write to inbox here — caller sends text+file together via /say
+                self._s(200, json.dumps({"ok": True, "path": rel, "is_img": is_img}))
             except Exception as e:
                 self._s(400, json.dumps({"error": str(e)}))
             return

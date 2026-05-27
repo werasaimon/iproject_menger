@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Create a clean PR branch from dev_x → main, stripping AI meta files.
+
+Usage:
+  bin/pr                     → active project, dry-run (no push)
+  bin/pr <project>           → named project, dry-run
+  bin/pr <project> --push    → create branch + push + gh pr create
+"""
+import pathlib, subprocess, sys, datetime
+
+D  = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+AP = D / "active_project"
+
+PROJECTS = {
+    "istereolab-sdk":       pathlib.Path("/home/wera_n/GIT/istereolab-sdk"),
+    "depz-toolkit":         pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
+    "depz-camera-sdk":      pathlib.Path("/home/wera_n/GIT/depz-camera-sdk"),
+    "ifirmware-stereocam":  pathlib.Path("/home/wera_n/GIT/ifirmware-stereocam"),
+}
+
+STRIP  = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", ".claude", ".codex"]
+SOURCE = "dev_x"
+TARGET = "main"
+
+def git(path, *args, check=True):
+    r = subprocess.run(["git", "-C", str(path), *args],
+                       capture_output=True, text=True, timeout=30)
+    if check and r.returncode != 0:
+        print(f"git error: {r.stderr.strip()}"); sys.exit(1)
+    return r.stdout.strip(), r.returncode
+
+def main():
+    argv = sys.argv[1:]
+    push = "--push" in argv
+    argv = [a for a in argv if not a.startswith("-")]
+
+    name = argv[0] if argv else (AP.read_text().strip() if AP.exists() else "")
+    if not name or name not in PROJECTS:
+        print(f"unknown project: {name!r}\nknown: {', '.join(PROJECTS)}"); sys.exit(1)
+
+    path = PROJECTS[name]
+    branch, _ = git(path, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch != SOURCE:
+        print(f"current branch is {branch!r} — switch to {SOURCE!r} first"); sys.exit(1)
+
+    # check no uncommitted changes
+    status, _ = git(path, "status", "--porcelain")
+    if status:
+        print("uncommitted changes — commit or stash first"); sys.exit(1)
+
+    pr_branch = f"pr-{SOURCE}-{datetime.date.today().strftime('%Y%m%d')}"
+
+    # delete pr branch if it already exists
+    existing, rc = git(path, "branch", "--list", pr_branch, check=False)
+    if existing:
+        git(path, "branch", "-D", pr_branch)
+        print(f"deleted old {pr_branch}")
+
+    # start pr branch from main
+    git(path, "checkout", "-b", pr_branch, TARGET)
+    print(f"created {pr_branch} from {TARGET}")
+
+    # merge dev_x without commit so we can fix meta files
+    _, rc = git(path, "merge", "--no-commit", "--no-ff", SOURCE, check=False)
+    merge_status, _ = git(path, "status", "--porcelain")
+    conflicts = [l for l in merge_status.splitlines() if l.startswith("UU") or l.startswith("AA")]
+    if conflicts:
+        git(path, "merge", "--abort")
+        git(path, "checkout", SOURCE)
+        print("merge conflicts — resolve manually:"); [print(" ", c) for c in conflicts]
+        sys.exit(1)
+    print(f"merged {SOURCE} (staged, not committed)")
+
+    # restore each strip item to TARGET state (or unstage if not in TARGET)
+    for item in STRIP:
+        in_target, rc = git(path, "ls-tree", "-r", "--name-only", TARGET, "--", item, check=False)
+        in_staged,  _  = git(path, "ls-files", "--", item, check=False)
+        if in_target.strip():
+            git(path, "checkout", TARGET, "--", item)
+            print(f"  reset  {item} → {TARGET}")
+        elif in_staged.strip():
+            git(path, "rm", "-r", "--cached", "--force", "--", item)
+            print(f"  removed {item} (not in {TARGET})")
+
+    # commit
+    staged, _ = git(path, "status", "--porcelain")
+    if staged:
+        git(path, "commit", "-m",
+            f"feat: merge {SOURCE} into {TARGET} (AI meta stripped)\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>")
+        print("committed")
+    else:
+        print("nothing to commit — branches identical after strip")
+        git(path, "merge", "--abort", check=False)
+        git(path, "checkout", SOURCE)
+        sys.exit(0)
+
+    git(path, "checkout", SOURCE)
+    print(f"\n✓ branch ready: {pr_branch}")
+
+    if push:
+        subprocess.run(["git", "-C", str(path), "push", "-u", "origin", pr_branch], check=True)
+        subprocess.run([
+            "gh", "pr", "create",
+            "--base",  TARGET,
+            "--head",  pr_branch,
+            "--title", f"Merge {SOURCE} → {TARGET}",
+            "--body",  f"Code from `{SOURCE}`. AI meta files (CLAUDE.md, .claude/, .codex/) stripped.",
+        ], cwd=str(path))
+    else:
+        print(f"\nдля пуша:")
+        print(f"  git -C {path} push -u origin {pr_branch}")
+        print(f"  gh pr create --base {TARGET} --head {pr_branch}")
+
+if __name__ == "__main__":
+    main()

@@ -1,18 +1,119 @@
-#!/usr/bin/env bash
-# Our own fast project memory — run at session start to orient instantly.
-#   bin/ctx            -> active project + its context + feedback tally
-#   bin/ctx <project>  -> switch active project, then show it
-D=/home/wera_n/GIT/iproject_menger/data
-mkdir -p "$D/ctx"
-[ -n "${1:-}" ] && printf '%s' "$1" > "$D/active_project"
-AP="$(cat "$D/active_project" 2>/dev/null)"
-echo "== active project: ${AP:-<none>} =="
-CF="$D/ctx/${AP}.md"
-if [ -f "$CF" ]; then cat "$CF"; else echo "(no context file: $CF)"; fi
-echo
-echo "== feedback tally =="
-if [ -f "$D/feedback.jsonl" ]; then
-  printf '👍 %s   👎 %s\n' \
-    "$(grep -c '"v": "up"' "$D/feedback.jsonl" 2>/dev/null || echo 0)" \
-    "$(grep -c '"v": "down"' "$D/feedback.jsonl" 2>/dev/null || echo 0)"
-else echo "(none yet)"; fi
+#!/usr/bin/env python3
+"""Compressed session context — read once at session start instead of 5 tool calls.
+
+Usage:
+  bin/ctx              → compact state for active project
+  bin/ctx <project>    → switch active project, then show state
+  bin/ctx --all        → all projects one-liner each
+"""
+import json, pathlib, subprocess, sys
+
+D  = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+AP = D / "active_project"
+D.joinpath("ctx").mkdir(exist_ok=True)
+
+ALIASES = {
+    "istereolab-sdk":       "is",
+    "depz-toolkit":         "dt",
+    "depz-camera-sdk":      "dc",
+    "ifirmware-stereocam":  "fw",
+    "iproject_menger":      "ip",
+}
+PROJECTS = {
+    "istereolab-sdk":       pathlib.Path("/home/wera_n/GIT/istereolab-sdk"),
+    "depz-toolkit":         pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
+    "depz-camera-sdk":      pathlib.Path("/home/wera_n/GIT/depz-camera-sdk"),
+    "ifirmware-stereocam":  pathlib.Path("/home/wera_n/GIT/ifirmware-stereocam"),
+    "iproject_menger":      pathlib.Path("/home/wera_n/GIT/iproject_menger"),
+}
+
+def git1(path, *args):
+    try:
+        return subprocess.run(["git","-C",str(path),*args],
+                              capture_output=True,text=True,timeout=5).stdout.strip()
+    except Exception:
+        return "?"
+
+def hyp_counts(name):
+    f = D / "hypotheses" / f"{name}.jsonl"
+    counts = {}
+    if f.exists():
+        for line in f.read_text().splitlines():
+            try:
+                st = json.loads(line).get("status","pending")
+                counts[st] = counts.get(st,0) + 1
+            except Exception:
+                pass
+    return counts
+
+def last_inbox(n=2):
+    f = D / "inbox.jsonl"
+    if not f.exists():
+        return []
+    lines = [l for l in f.read_text().splitlines() if l.strip()][-n:]
+    out = []
+    for l in lines:
+        try:
+            m = json.loads(l)
+            txt = m.get("text","")[:70]
+            out.append(f'{m.get("ts","")} {txt}')
+        except Exception:
+            pass
+    return out
+
+def focus_hint(name):
+    f = D / f"focus_{name}.txt"
+    if not f.exists():
+        return None
+    return f.read_text().strip().splitlines()[0][:80]
+
+def ctx_note(name):
+    f = D / "ctx" / f"{name}.md"
+    if not f.exists():
+        return None
+    return f.read_text().strip().splitlines()[0][:80]
+
+def show_project(name):
+    alias  = ALIASES.get(name, name)
+    path   = PROJECTS.get(name)
+    branch = git1(path,"rev-parse","--abbrev-ref","HEAD") if path else "?"
+    sha    = git1(path,"log","-1","--format=%h %s") if path else "?"
+    hyp    = hyp_counts(name)
+    hyp_str = " ".join(f"{v}{k[:3]}" for k,v in hyp.items()) or "0hyp"
+    focus  = focus_hint(name)
+    note   = ctx_note(name)
+    inbox  = last_inbox(2)
+
+    print(f"p={name} [{alias}]  ⎇{branch}  {sha}")
+    print(f"hyp: {hyp_str}")
+    if focus:
+        print(f"focus: {focus}")
+    if note:
+        print(f"ctx:   {note}")
+    if inbox:
+        print("inbox:")
+        for m in inbox:
+            print(f"  {m}")
+
+def show_all():
+    active = AP.read_text().strip() if AP.exists() else ""
+    for name in PROJECTS:
+        path   = PROJECTS[name]
+        alias  = ALIASES.get(name, name)
+        branch = git1(path,"rev-parse","--abbrev-ref","HEAD")
+        sha    = git1(path,"log","-1","--format=%h")
+        hyp    = hyp_counts(name)
+        hyp_str = " ".join(f"{v}{k[:3]}" for k,v in hyp.items()) or "-"
+        marker = " ◀" if name == active else ""
+        print(f"[{alias}] {name:20s} ⎇{branch:12s} {sha}  hyp:{hyp_str}{marker}")
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if "--all" in args:
+        show_all(); sys.exit(0)
+    if args and not args[0].startswith("-"):
+        AP.write_text(args[0])
+    name = AP.read_text().strip() if AP.exists() else ""
+    if not name:
+        print("no active project — run: bin/ctx <project>"); sys.exit(1)
+    show_project(name)

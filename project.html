@@ -40,6 +40,9 @@
   input,textarea{flex:1;background:#0f1420;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:8px 10px;font:inherit}
   textarea{resize:vertical;min-height:42px;max-height:200px}
   button.send{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:8px 13px;font-weight:600;cursor:pointer;align-self:flex-end}
+  .btn-col{display:flex;flex-direction:column;gap:3px;align-self:flex-end}
+  button.phys{background:transparent;border:1px solid #6e40c9;border-radius:6px;padding:3px 7px;color:#a371f7;cursor:pointer;font-size:13px;opacity:.6;transition:.15s;line-height:1}
+  button.phys.on{background:#1e0a45;opacity:1;box-shadow:0 0 5px #6e40c966}
   .kpi{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px}
   .kpi div{background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:8px 13px}
   .kpi .v{font-size:20px;font-weight:700} .kpi .l{font-size:11px;color:var(--mut)}
@@ -59,7 +62,8 @@
   .cmdbar{display:flex;flex-wrap:wrap;gap:5px;padding:6px 10px;border-top:1px solid var(--line)}
   .chip{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:16px;padding:3px 9px;font-size:11.5px;cursor:pointer}
   .chip:hover{border-color:var(--accent)} .chip.cli{color:#e3b341;border-style:dashed}
-  .clip{cursor:pointer;font-size:18px;align-self:flex-end;padding:7px 4px} .clip input{display:none}
+  .clip{cursor:pointer;align-self:flex-end;padding:5px 4px;background:none;border:none;font-size:18px;color:var(--mut);white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;border-radius:8px}
+  .clip.has-file{background:#0f2d14;border:1px solid #3fb950;color:#56d364;font-size:12px;padding:5px 8px}
   .log .chatimg{max-width:100%;border-radius:6px;margin-top:5px;display:block;border:1px solid var(--line)}
   .md{font-size:14px;line-height:1.65} .md h1,.md h2,.md h3{color:var(--fg);border:0;margin:12px 0 6px} .md code{background:#1f2630;padding:1px 5px;border-radius:4px} .md pre{background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:10px} .md table{border-collapse:collapse} .md td,.md th{border:1px solid var(--line);padding:4px 9px} .md a{color:var(--accent)} .md blockquote{border-left:3px solid var(--line);margin:0;padding-left:12px;color:var(--mut)}
   .hypform{display:flex;gap:8px;margin:8px 0} .hypform textarea{flex:1;min-height:42px}
@@ -108,6 +112,8 @@
     <button id="t-hyp" onclick="tab('hyp')">💡 гипотезы</button>
     <button id="t-judge" onclick="tab('judge')">суждения</button>
     <button id="t-brain" onclick="tab('brain')">🧠 граф</button>
+    <button id="t-plan" onclick="tab('plan')">📊 план</button>
+    <button onclick="window.open('/meta.html?p='+encodeURIComponent(P),'_blank')">⚛ мета</button>
   </div>
 </header>
 <main>
@@ -120,7 +126,9 @@
     <div class="think" id="think"><span class="dots"><i></i><i></i><i></i></span><span class="tx" id="thinktx">думаю…</span><span class="el" id="thinkel"></span></div>
     <div class="cmdbar" id="cmdbar"></div>
     <div id="choices"></div>
-    <form onsubmit="return send()"><label class="clip" title="прикрепить файл">📎<input type="file" accept="image/*" onchange="upimg(this)"></label><textarea id="in" rows="2" placeholder="спроси про проект… (Enter — отправить, Shift+Enter — строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button class="send">▶</button></form>
+    <input type="file" id="pfup" multiple style="position:absolute;left:-9999px;top:-9999px" onchange="upimg(this)">
+    <div id="pfpreview" style="display:none;font-size:11px;color:#56d364;padding:3px 10px;background:#0f2d14;border-top:1px solid #2a6b34">📎 <span id="pfname"></span><span style="color:#f85149;cursor:pointer;margin-left:8px;font-weight:700" onclick="_pClearPending()">✕</span></div>
+    <form onsubmit="return send()"><div class="btn-col"><button type="button" id="pclip" class="clip" title="прикрепить файл" onclick="document.getElementById('pfup').click()">📎</button><button type="button" id="pbtn" class="phys" title="Physics mode: K̂→1 · iso · S→min · no-inv" onclick="_pTogglePhys()">⚛</button></div><textarea id="in" rows="2" placeholder="спроси про проект… (Enter — отправить, Shift+Enter — строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button class="send">▶</button></form>
   </aside>
 </main>
 <script>
@@ -131,16 +139,23 @@
     const ps = await (await fetch("/api/projects",{cache:"no-store"})).json();
     const me = ps.find(x=>x.name===P); if(me) document.getElementById("br").textContent="⎇ "+me.branch;
   }
-  function tab(m){ mode=m; for(const id of ["analysis","commits","status","files","hyp","judge","brain"]) document.getElementById("t-"+id).classList.toggle("on",id===m); render(); }
+  function tab(m){ mode=m; for(const id of ["analysis","commits","status","files","hyp","judge","brain","plan"]) document.getElementById("t-"+id).classList.toggle("on",id===m); render(); }
   const KCOL={feat:"#3fb950",fix:"#f85149",refactor:"#bc8cff",docs:"#58a6ff",test:"#d29922",perf:"#39c5cf",chore:"#8b949e"};
   async function render(){
     const L=document.getElementById("left"), C=document.getElementById("center");
+    L.style.display=""; // reset visibility from brain mode
     if(mode==="analysis"){ await renderAnalysis(L,C); return; }
     if(mode==="hyp"){ await renderHyp(L,C); return; }
     if(mode==="judge"){ L.innerHTML="<p style='color:var(--mut);font-size:12px;padding:6px'>глубокий разбор проекта (граф+карточки+таблицы). Собираю по запросу «суждения "+P+"».</p>";
       C.innerHTML="<iframe src='/judgement?p="+encodeURIComponent(P)+"' style='width:100%;height:82vh;border:0;border-radius:8px;background:#0d1117'></iframe>"; return; }
-    if(mode==="brain"){ L.innerHTML="<p style='color:var(--mut);font-size:12px;padding:6px'>граф суждений проекта: узлы=суждения/состояния/факты, рёбра=связи; <b style='color:#f85149'>красный пунктир = невозможные</b> (ломают изометрию/superset). Клик = детали / почему нельзя.</p>";
-      C.innerHTML="<iframe src='/brain.html?p="+encodeURIComponent(P)+"' style='width:100%;height:82vh;border:0;border-radius:8px;background:#0d1117'></iframe>"; return; }
+    if(mode==="brain"){ L.innerHTML=""; L.style.display="none";
+      C.innerHTML="<iframe src='/brain.html?p="+encodeURIComponent(P)+"' style='width:100%;height:90vh;border:0;border-radius:8px;background:#0d1117'></iframe>"; return; }
+    if(mode==="plan"){ L.innerHTML=""; L.style.display="none";
+      const gurl='/graphs/action_graph.html';
+      fetch(gurl,{method:'HEAD',cache:'no-store'}).then(r=>{
+        if(r.ok) C.innerHTML=`<iframe src="${gurl}" style="width:100%;height:90vh;border:0;border-radius:8px;background:#0d1117"></iframe>`;
+        else C.innerHTML=`<div style="padding:40px;color:var(--mut)">Нет файла graphs/action_graph.html для этого проекта.</div>`;
+      }); return; }
     if(mode==="commits"){
       const cs = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=log",{cache:"no-store"})).json();
       const legend = `<div class="legend">
@@ -205,7 +220,7 @@
     const chk  = h.checked_ts ? ` · проверено ${h.checked_ts}` : '';
     return `<div class="hyp ${s}"><div class="hd"><span class="badge ${s}">${badge}</span><span class="dt">${h.ts||''}${chk}</span></div>
       <div class="tx">${esc(h.text)}</div>${evid}
-      <div class="acts"><b onclick="hypStatus('${h.id}','confirmed')" title="подтвердить">✓</b><b onclick="hypStatus('${h.id}','refuted')" title="опровергнуть">✗</b><b onclick="hypStatus('${h.id}','open')" title="open">↺</b></div></div>`; }
+      <div class="acts"><b onclick="hypStatus('${h.id}','confirmed')" title="подтвердить">✓</b><b onclick="hypStatus('${h.id}','refuted')" title="опровергнуть">✗</b><b onclick="hypStatus('${h.id}','open')" title="open">↺</b><b onclick="hypDelete('${h.id}')" title="удалить" style="color:var(--del);opacity:.5">🗑</b></div></div>`; }
   async function renderHyp(L,C){
     const hs = await (await fetch("/api/hypotheses?p="+encodeURIComponent(P),{cache:"no-store"})).json();
     C.innerHTML = "<h3>💡 гипотезы — наука начинается с догадки</h3>"
@@ -216,6 +231,7 @@
   async function addHyp(){ const el=document.getElementById("hyptext"); const t=(el.value||"").trim(); if(!t)return;
     await fetch("/hyp/add?p="+encodeURIComponent(P)+"&text="+encodeURIComponent(t)); renderHyp(document.getElementById("left"),document.getElementById("center")); }
   async function hypStatus(id,st){ await fetch("/hyp/status?p="+encodeURIComponent(P)+"&id="+encodeURIComponent(id)+"&status="+st); renderHyp(document.getElementById("left"),document.getElementById("center")); }
+  async function hypDelete(id){ if(!confirm("Удалить гипотезу?")) return; await fetch("/hyp/delete?p="+encodeURIComponent(P)+"&id="+encodeURIComponent(id)); renderHyp(document.getElementById("left"),document.getElementById("center")); }
   async function browse(sub){
     const r = await (await fetch("/api/files?p="+encodeURIComponent(P)+"&sub="+encodeURIComponent(sub),{cache:"no-store"})).json();
     const up = sub ? `<div class="file" style="cursor:pointer" onclick="browse('${sub.split('/').slice(0,-1).join('/')}')"><span class="d">⬆ ..</span></div>`:"";
@@ -258,15 +274,61 @@
     const r = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=show&sha="+sha,{cache:"no-store"})).json();
     document.getElementById("center").innerHTML="<h3>дельта коммита "+sha+"</h3><pre>"+colorize(r.text||"")+"</pre>";
   }
-  async function say(t){ if(!t)return; try{ await fetch("/say?text="+encodeURIComponent("["+P+"] "+t)); }catch(e){} }
-  function send(){ const i=document.getElementById("in"); say(i.value.trim()); i.value=""; return false; }
-  async function upimg(inp){ const f=inp.files[0]; if(!f) return;
-    try{ await fetch("/upload?p="+encodeURIComponent(P)+"&name="+encodeURIComponent(f.name),{method:"POST",body:f}); }catch(e){}
-    inp.value=""; }
+  const _ALIASES={"[is]":"istereolab-sdk","[dt]":"depz-toolkit","[dc]":"depz-camera-sdk","[fw]":"ifirmware-stereocam","[ip]":"iproject_menger"};
+  const _PHYS_PREFIX="[PHYSICS] K̂→1 · iso-first · S=LOC×churn→min · no-inv · H→0 // ";
+  let _physMode=false;
+  function _pTogglePhys(){ _physMode=!_physMode; document.getElementById("pbtn").classList.toggle("on",_physMode); }
+  async function say(t,imgs){ const ia=Array.isArray(imgs)?imgs:(imgs?[imgs]:[]);
+    if(!t&&!ia.length)return;
+    let proj=P, txt=t;
+    for(const [a,full] of Object.entries(_ALIASES)){
+      if(t.startsWith(a+" ")||t===a){ proj=full; txt=t.slice(a.length).trim(); break; }
+    }
+    if(_physMode && txt) txt=_PHYS_PREFIX+txt;
+    try{ let u="/say?text="+encodeURIComponent(txt?"["+proj+"] "+txt:"");
+      if(ia.length) u+="&img="+encodeURIComponent(ia.join(","));
+      await fetch(u); }catch(e){} }
+  let _pPendingImgs=[];
+  function _pRefreshPreview(){
+    const pv=document.getElementById("pfpreview"),nm=document.getElementById("pfname");
+    if(!_pPendingImgs.length){ if(pv)pv.style.display="none"; return; }
+    if(pv)pv.style.display="block";
+    if(nm)nm.innerHTML=_pPendingImgs.map((x,i)=>
+      "<span style='margin-right:8px'>"+esc(x.name)+(x.path?"":"⏳")
+      +"<span style='color:#f85149;cursor:pointer;margin-left:3px' onclick='_pRemoveImg("+i+")'>✕</span></span>").join("");
+  }
+  function _pRemoveImg(i){ _pPendingImgs.splice(i,1); _pRefreshPreview(); }
+  function _pClearPending(){ _pPendingImgs=[]; _pRefreshPreview(); }
+  function send(){ const i=document.getElementById("in"); const t=i.value.trim();
+    const imgs=_pPendingImgs.filter(x=>x.path).map(x=>x.path);
+    if(!t&&!imgs.length) return false; say(t,imgs); i.value=""; _pClearPending(); return false; }
+  async function upimg(inp){ const files=[...inp.files]; if(!files.length) return;
+    inp.value="";
+    for(const f of files){
+      const sn=f.name.length>28?f.name.slice(0,25)+"…":f.name;
+      const idx=_pPendingImgs.push({name:sn,path:null})-1;
+      _pRefreshPreview();
+      try{
+        const r=await fetch("/upload?p="+encodeURIComponent(P)+"&name="+encodeURIComponent(f.name),{method:"POST",body:f});
+        const d=await r.json();
+        if(d&&d.ok){ _pPendingImgs[idx].path=d.path; }
+        else { _pPendingImgs.splice(idx,1); }
+      }catch(e){ _pPendingImgs.splice(idx,1); }
+      _pRefreshPreview();
+    }
+  }
+  function linkify(txt){
+    return txt.replace(/</g,"&lt;").replace(
+      /https?:\/\/[^\s<>"']+/g,
+      u=>`<a href="${u}" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:underline;word-break:break-all">${u}</a>`
+    );
+  }
   async function poll(){ try{ const a=await (await fetch("/log",{cache:"no-store"})).json();
     document.getElementById("log").innerHTML=a.map(m=>{const cl=m.role==="claude";
-      const img=m.img?"<img class='chatimg' src='/up/"+m.img.split('/').pop()+"'>":"";
-      return "<div class='m"+(cl?" cl":"")+"'><div class='t'>"+(cl?"Claude":"ты")+" · "+(m.ts||"")+"</div>"+(m.text||"").replace(/</g,"&lt;")+img+"</div>";}).join("");
+      const imgPaths=(m.imgs||[]).concat(m.img&&!m.imgs?[m.img]:[]);
+      const img=imgPaths.map(p=>"<img class='chatimg' src='/up/"+p.split('/').pop()+"'>").join("");
+      const body=cl?linkify(m.text||""):(m.text||"").replace(/</g,"&lt;");
+      return "<div class='m"+(cl?" cl":"")+"'><div class='t'>"+(cl?"Claude":"ты")+" · "+(m.ts||"")+"</div>"+body+img+"</div>";}).join("");
     const lg=document.getElementById("log"); lg.scrollTop=lg.scrollHeight; }catch(e){} }
   async function loadCommands(){
     try{ const cmds=await (await fetch("/api/commands",{cache:"no-store"})).json(); window.__CMDS=cmds;
@@ -316,6 +378,12 @@
   }
   document.getElementById("choices").addEventListener("click",e=>{ const b=e.target.closest(".ch-b");
     if(b){ say(b.textContent); document.getElementById("choices").style.display="none"; } });
+  window.addEventListener("message", async e=>{
+    if(!e.data||e.data.cmd!=="openFile") return;
+    tab("files");
+    await new Promise(r=>setTimeout(r,50)); // let render() switch the tab first
+    openFile(e.data.path);
+  });
   head(); render(); poll(); loadCommands(); pollStatus(); pollActivity(); pollChoices(); setInterval(()=>{poll();pollPtrace();}, 3000);
   setInterval(pollStatus, 1000); setInterval(pollActivity, 1500); setInterval(pollChoices, 1500);
 </script>

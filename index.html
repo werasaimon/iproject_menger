@@ -45,8 +45,10 @@
   .chip{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:16px;padding:4px 10px;font-size:12px;cursor:pointer}
   .chip:hover{border-color:var(--accent)} .chip.cli{color:#e3b341;border-style:dashed}
   .fb{margin-top:3px} .fb b{cursor:pointer;font-size:13px;margin-right:10px;opacity:.65} .fb b:hover{opacity:1}
-  .clip{cursor:pointer;font-size:18px;align-self:flex-end;padding:7px 4px} .clip input{display:none}
   .log .chatimg{max-width:100%;border-radius:6px;margin-top:5px;display:block;border:1px solid var(--line)}
+  #clipbtn{background:none;border:none;cursor:pointer;align-self:flex-end;padding:5px 4px;font-size:20px;color:var(--mut);white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;border-radius:8px;transition:.15s}
+  #clipbtn:hover{color:var(--accent)}
+  #clipbtn.has-file{background:#0f2d14;border:1px solid #3fb950;color:#56d364;font-size:12px;padding:5px 8px}
   .think{display:none;align-items:center;gap:10px;margin:8px 0 2px;padding:9px 13px;border-radius:10px;
     background:linear-gradient(90deg,#10243d,#161b22);border:1px solid var(--accent);font-size:13.5px;color:#cfe5ff;overflow:hidden;position:relative}
   .think.on{display:flex}
@@ -77,7 +79,12 @@
     <div class="think" id="think"><span class="dots"><i></i><i></i><i></i></span><span class="tx" id="thinktx">думаю…</span><span class="el" id="thinkel"></span></div>
     <div id="choices"></div>
     <div class="cmdbar" id="cmdbar"></div>
-    <form onsubmit="return send()"><label class="clip" title="прикрепить файл">📎<input type="file" accept="image/*" onchange="upimg(this)"></label><textarea id="in" rows="2" placeholder="напиши, что делать… (Enter — отправить, Shift+Enter — новая строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button>▶</button></form>
+    <input type="file" id="fup" style="position:absolute;left:-9999px;top:-9999px" onchange="upimg(this)">
+    <form onsubmit="return send()">
+      <button type="button" id="clipbtn" title="прикрепить файл" onclick="document.getElementById('fup').click()">📎</button>
+      <textarea id="in" rows="2" placeholder="напиши, что делать… (Enter — отправить, Shift+Enter — новая строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
+      <button>▶</button>
+    </form>
   </div>
 
   <div class="trace">
@@ -104,8 +111,13 @@
         </a>`).join("");
     }catch(e){ document.getElementById("live").className="live off"; document.getElementById("live").textContent="● сервер выкл"; }
   }
-  async function say(t){ if(!t) return; try{ await fetch("/say?text="+encodeURIComponent(t)); }catch(e){} }
-  function send(){ const i=document.getElementById("in"); say(i.value.trim()); i.value=""; return false; }
+  async function say(t,img){ if(!t&&!img) return;
+    try{ let url="/say?text="+encodeURIComponent(t||""); if(img) url+="&img="+encodeURIComponent(img);
+      await fetch(url); }catch(e){} }
+  function send(){ const i=document.getElementById("in"); const t=i.value.trim(); const img=_pendingImg;
+    if(!t&&!img) return false;
+    say(t,img); i.value=""; clearPending(); return false; }
+  function addLocal(t){ /* local echo placeholder — no-op */ }
   async function poll(){
     try{ const r=await fetch("/log",{cache:"no-store"}); const a=await r.json();
       document.getElementById("log").innerHTML=a.map(m=>{const cl=m.role==="claude";
@@ -139,9 +151,32 @@
     else if(c.copy){ if(navigator.clipboard) navigator.clipboard.writeText(c.copy); addLocal("📋 "+c.copy+" — скопировано, вставь в терминал claude"); }
   }
   function fb(ts,v){ fetch("/feedback?ts="+encodeURIComponent(ts)+"&v="+v); }
-  async function upimg(inp){ const f=inp.files[0]; if(!f) return;
-    try{ await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f}); }catch(e){}
-    inp.value=""; }
+  let _pendingImg=null;
+  function clearPending(){
+    _pendingImg=null;
+    const btn=document.getElementById("clipbtn");
+    btn.classList.remove("has-file"); btn.innerHTML="📎";
+    document.getElementById("in").placeholder="напиши, что делать… (Enter — отправить, Shift+Enter — новая строка)";
+  }
+  async function upimg(inp){
+    const f=inp.files[0]; if(!f) return;
+    inp.value="";
+    const btn=document.getElementById("clipbtn");
+    const shortName=f.name.length>18?f.name.slice(0,15)+"…":f.name;
+    btn.classList.add("has-file");
+    btn.innerHTML="⏳ "+shortName;
+    document.getElementById("in").placeholder="подпись / текст — нажми ▶ чтобы отправить…";
+    try{
+      const r=await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f});
+      const d=await r.json();
+      if(d.ok){
+        _pendingImg=d.path;
+        btn.innerHTML="📎 "+shortName+" <span style='color:#f85149;margin-left:4px' onclick='event.stopPropagation();clearPending()'>✕</span>";
+      } else {
+        btn.classList.remove("has-file"); btn.innerHTML="📎 ошибка";
+      }
+    }catch(e){ btn.classList.remove("has-file"); btn.innerHTML="📎"; }
+  }
   function critToChat(){ const t=(document.getElementById("critique").textContent||"").slice(0,1600).trim();
     if(t && !/появится здесь/.test(t)){ fetch("/say?text="+encodeURIComponent("разбери критику и давай исправим по пунктам:\n"+t)); addLocal("→ отправил критику в чат"); } }
   async function pollChoices(){

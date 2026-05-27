@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Post a Claude reply into the pair-chat.  Usage: bin/say "text"
+python3 - "$*" <<'PY'
+import json, time, sys, pathlib
+pathlib.Path("/home/wera_n/GIT/iproject_menger/data/replies.jsonl").open("a").write(
+    json.dumps({"ts": time.strftime("%H:%M:%S"), "role": "claude", "text": sys.argv[1]},
+               ensure_ascii=False) + "\n")
+print("ok")
+PY

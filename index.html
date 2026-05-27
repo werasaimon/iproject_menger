@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEPZ Studio · исследователь проектов</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--accent:#58a6ff;--add:#3fb950;--warn:#d29922}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+  header{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  header h1{font-size:20px;margin:0} .live{font-size:12px;font-weight:600;padding:2px 9px;border-radius:20px}
+  .ok{background:rgba(63,185,80,.14);color:#56d364;border:1px solid rgba(63,185,80,.4)}
+  .off{background:rgba(210,153,34,.16);color:#e3b341;border:1px solid rgba(210,153,34,.4)}
+  .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 40px}
+  h2{font-size:15px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 12px}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.cards{grid-template-columns:1fr}}
+  a.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;text-decoration:none;color:var(--fg);transition:.12s}
+  a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .card .nm{font-size:18px;font-weight:700}
+  .card .br{font-size:12px;color:var(--accent);font-family:ui-monospace,monospace}
+  .card .hd{font-size:12.5px;color:var(--mut);margin-top:8px}
+  .card .hd b{color:#d6e2f0;font-family:ui-monospace,monospace}
+  .card .path{font-size:11.5px;color:#6e7681;margin-top:6px;font-family:ui-monospace,monospace}
+  .chat{margin-top:28px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .chat h2{margin:0 0 8px}
+  .log{max-height:180px;overflow:auto;font-size:13px}
+  .log .m{border:1px solid var(--line);border-radius:8px;padding:5px 9px;margin:5px 0}
+  .log .m.cl{border-color:var(--accent);background:#10243d} .log .m .t{color:var(--mut);font-size:11px}.log .m.cl .t{color:var(--accent)}
+  form{display:flex;gap:8px;margin-top:8px;align-items:flex-end} input,textarea{flex:1;background:#0f1420;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:8px 10px;font:inherit}
+  textarea{resize:vertical;min-height:42px;max-height:220px}
+  button{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}
+  .trace{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .trace h2{margin:0 0 8px}
+  .steps{max-height:280px;overflow:auto;font-size:13px}
+  .step{border-left:3px solid var(--mut);padding:4px 10px;margin:5px 0;background:#0f1420;border-radius:0 8px 8px 0}
+  .step .k{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+  .step .w{margin:1px 0} .step .y{color:var(--mut);font-size:12px}
+  .step .ts{color:#6e7681;font-size:10px;float:right}
+  .step.hyp{border-left-color:#bc8cff} .step.check{border-left-color:#58a6ff}
+  .step.found{border-left-color:#d29922} .step.fix{border-left-color:#3fb950}
+  .step.done{border-left-color:#3fb950} .step.note{border-left-color:#8b949e}
+  .critic{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--del);border-radius:12px;padding:12px 14px}
+  .critic h2{margin:0 0 8px;color:#ff7b72}
+  .critic pre{white-space:pre-wrap;font-size:12.5px;line-height:1.5;max-height:340px;overflow:auto;background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0}
+  .cmdbar{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+  .chip{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:16px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .chip:hover{border-color:var(--accent)} .chip.cli{color:#e3b341;border-style:dashed}
+  .fb{margin-top:3px} .fb b{cursor:pointer;font-size:13px;margin-right:10px;opacity:.65} .fb b:hover{opacity:1}
+</style></head>
+<body>
+<header><h1>🛰 DEPZ Studio</h1><span id="live" class="live off">●</span>
+  <span style="color:var(--mut);font-size:13px;margin-left:auto">исследователь проектов</span></header>
+<div class="wrap">
+  <h2>Проекты</h2>
+  <div class="cards" id="cards">загрузка…</div>
+
+  <div class="chat">
+    <h2>Чат с Claude (пара)</h2>
+    <div class="log" id="log"></div>
+    <div class="cmdbar" id="cmdbar"></div>
+    <form onsubmit="return send()"><textarea id="in" rows="2" placeholder="напиши, что делать… (Enter — отправить, Shift+Enter — новая строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button>▶</button></form>
+  </div>
+
+  <div class="trace">
+    <h2>🧠 Процесс рассуждения Claude (живой)</h2>
+    <div class="steps" id="steps"><span style="color:var(--mut)">шаги появятся во время работы / отладки…</span></div>
+  </div>
+
+  <div class="critic">
+    <h2>🔪 Критик (codex · объективный) <button onclick="critToChat()" style="font-size:12px;padding:3px 9px;background:#1f6feb;border:0;border-radius:14px;color:#fff;cursor:pointer">→ в чат, исправим</button></h2>
+    <pre id="critique">критика появится здесь после запроса «критик &lt;проект&gt;»…</pre>
+  </div>
+</div>
+<script>
+  async function loadProjects(){
+    try{
+      const r = await fetch("/api/projects",{cache:"no-store"}); const ps = await r.json();
+      document.getElementById("live").className="live ok"; document.getElementById("live").textContent="● на связи";
+      document.getElementById("cards").innerHTML = ps.map(p=>`
+        <a class="card" href="/p?name=${encodeURIComponent(p.name)}">
+          <div class="nm">${p.name}</div>
+          <div class="br">⎇ ${p.branch}</div>
+          <div class="hd"><b>${p.head}</b> · ${p.date} — ${(''+p.subject).replace(/</g,'&lt;')}</div>
+          <div class="path">${p.path}</div>
+        </a>`).join("");
+    }catch(e){ document.getElementById("live").className="live off"; document.getElementById("live").textContent="● сервер выкл"; }
+  }
+  async function say(t){ if(!t) return; try{ await fetch("/say?text="+encodeURIComponent(t)); }catch(e){} }
+  function send(){ const i=document.getElementById("in"); say(i.value.trim()); i.value=""; return false; }
+  async function poll(){
+    try{ const r=await fetch("/log",{cache:"no-store"}); const a=await r.json();
+      document.getElementById("log").innerHTML=a.map(m=>{const cl=m.role==="claude";
+        const fbr=cl?"<div class='fb'><b onclick=\"fb('"+(m.ts||'')+"','up')\">👍</b><b onclick=\"fb('"+(m.ts||'')+"','down')\">👎</b></div>":"";
+        return "<div class='m"+(cl?" cl":"")+"'><div class='t'>"+(cl?"Claude":"ты")+" · "+(m.ts||"")+"</div>"+(m.text||"").replace(/</g,"&lt;")+fbr+"</div>";}).join("");
+      const lg=document.getElementById("log"); lg.scrollTop=lg.scrollHeight;
+    }catch(e){}
+  }
+  async function pollTrace(){
+    try{ const a=await (await fetch("/trace",{cache:"no-store"})).json();
+      if(!a.length) return;
+      document.getElementById("steps").innerHTML=a.map(s=>
+        "<div class='step "+(s.kind||"note")+"'><span class='ts'>"+(s.ts||"")+"</span><div class='k'>"+(s.kind||"")+"</div><div class='w'>"+(s.what||"").replace(/</g,"&lt;")+"</div>"+(s.why?"<div class='y'>↳ "+(''+s.why).replace(/</g,"&lt;")+"</div>":"")+"</div>").join("");
+      const el=document.getElementById("steps"); el.scrollTop=el.scrollHeight;
+    }catch(e){}
+  }
+  async function pollCritique(){
+    try{ const c=await (await fetch("/critique",{cache:"no-store"})).json();
+      if(c.text) document.getElementById("critique").textContent=c.text;
+    }catch(e){}
+  }
+  async function loadCommands(){
+    try{ const cmds=await (await fetch("/api/commands",{cache:"no-store"})).json(); window.__CMDS=cmds;
+      document.getElementById("cmdbar").innerHTML=cmds.map((c,i)=>
+        `<span class="chip ${c.group==='CLI'?'cli':''}" onclick="cmd(${i})" title="${c.send?'→ отправить в чат':'копировать для терминала'}">${c.label}</span>`).join("");
+    }catch(e){}
+  }
+  function cmd(i){ const c=(window.__CMDS||[])[i]; if(!c) return;
+    if(c.send){ say(c.send); addLocal(c.send); }
+    else if(c.copy){ if(navigator.clipboard) navigator.clipboard.writeText(c.copy); addLocal("📋 "+c.copy+" — скопировано, вставь в терминал claude"); }
+  }
+  function fb(ts,v){ fetch("/feedback?ts="+encodeURIComponent(ts)+"&v="+v); }
+  function critToChat(){ const t=(document.getElementById("critique").textContent||"").slice(0,1600).trim();
+    if(t && !/появится здесь/.test(t)){ fetch("/say?text="+encodeURIComponent("разбери критику и давай исправим по пунктам:\n"+t)); addLocal("→ отправил критику в чат"); } }
+  loadProjects(); poll(); pollTrace(); pollCritique(); loadCommands();
+  setInterval(()=>{loadProjects();poll();pollTrace();pollCritique();}, 3000);
+</script>
+</body></html>

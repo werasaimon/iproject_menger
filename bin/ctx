@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Our own fast project memory — run at session start to orient instantly.
+#   bin/ctx            -> active project + its context + feedback tally
+#   bin/ctx <project>  -> switch active project, then show it
+D=/home/wera_n/GIT/iproject_menger/data
+mkdir -p "$D/ctx"
+[ -n "${1:-}" ] && printf '%s' "$1" > "$D/active_project"
+AP="$(cat "$D/active_project" 2>/dev/null)"
+echo "== active project: ${AP:-<none>} =="
+CF="$D/ctx/${AP}.md"
+if [ -f "$CF" ]; then cat "$CF"; else echo "(no context file: $CF)"; fi
+echo
+echo "== feedback tally =="
+if [ -f "$D/feedback.jsonl" ]; then
+  printf '👍 %s   👎 %s\n' \
+    "$(grep -c '"v": "up"' "$D/feedback.jsonl" 2>/dev/null || echo 0)" \
+    "$(grep -c '"v": "down"' "$D/feedback.jsonl" 2>/dev/null || echo 0)"
+else echo "(none yet)"; fi

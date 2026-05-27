@@ -1,0 +1,6 @@
+# runtime chat state
+/data/
+# ad-hoc / private visual pages (kept local, not published)
+/graphs/
+__pycache__/
+*.pyc

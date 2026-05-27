@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Log one reasoning step, shown live on the site.
+#   bin/step KIND "what I do" ["why"]
+# KIND in: hyp | check | found | fix | done | note
+python3 - "$1" "$2" "${3:-}" <<'PY'
+import json, time, sys, pathlib
+pathlib.Path("/home/wera_n/GIT/iproject_menger/data/trace.jsonl").open("a").write(
+    json.dumps({"ts": time.strftime("%H:%M:%S"), "kind": sys.argv[1],
+                "what": sys.argv[2], "why": sys.argv[3]}, ensure_ascii=False) + "\n")
+print("ok")
+PY

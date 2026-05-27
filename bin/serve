@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# (Re)start the iProject Manager server. Run via run_in_background.
+fuser -k 8078/tcp 2>/dev/null
+sleep 1
+exec python3 /home/wera_n/GIT/iproject_menger/server.py

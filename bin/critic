@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Ruthless-but-objective code critic via codex (read-only sandbox).
+#   bin/critic <project-dir> [focus]
+# Writes the verdict to data/critique.md (shown on the site). Prints only a
+# status line — the critique itself is NOT echoed into the agent's context.
+set -uo pipefail
+DIR="${1:?usage: critic <project-dir> [focus]}"
+NAME="$(basename "$DIR")"
+FOCUSFILE="/home/wera_n/GIT/iproject_menger/data/focus_${NAME}.txt"
+# Focus precedence: explicit arg > curated per-project focus file > whole project.
+if [ -n "${2:-}" ]; then FOCUS="$2"
+elif [ -f "$FOCUSFILE" ]; then FOCUS="$(cat "$FOCUSFILE")"
+else FOCUS="the whole project"; fi
+OUT=/home/wera_n/GIT/iproject_menger/data/critique.md
+PROMPT="You are a ruthless but strictly OBJECTIVE code critic who is never satisfied. \
+Every criticism MUST be concrete and verifiable (cite file:line or a symbol) — no \
+vague complaints, no praise, no filler, no preamble, no explanations of what the \
+code does. \
+SCOPE: review EXACTLY the following and nothing else; if it names files, open only \
+those: ${FOCUS}. \
+FORMAT — be BRUTALLY BRIEF (this is a punch in the face, not an essay): a flat list \
+of AT MOST 6 problems, each on ONE line as '- file:line — problem — why it matters'. \
+No headings, no intro, no prose. Then one final line: 'WORST: <the single most \
+important problem>'. Hard cap ~22 lines total. If there are genuinely no real \
+problems in scope, output exactly: 'OK — no real problems in scope.'"
+{
+  echo "# Critic · $(basename "$DIR") · $(date '+%F %T')"
+  echo
+  echo "_focus: ${FOCUS}_"
+  echo
+  codex exec -s read-only --skip-git-repo-check -C "$DIR" "$PROMPT" 2>&1
+} > "$OUT"
+echo "critique written: $(wc -c <"$OUT") bytes -> data/critique.md"

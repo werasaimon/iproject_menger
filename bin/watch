@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Block until the user sends a message from the site, then print it and clear.
+# Run via run_in_background; completion = a new message arrived.
+N=/home/wera_n/GIT/iproject_menger/data/inbox_new
+rm -f "$N"
+until [ -s "$N" ]; do sleep 2; done
+echo "FROM_SITE:"
+cat "$N"
+rm -f "$N"

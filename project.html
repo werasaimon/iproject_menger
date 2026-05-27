@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEPZ Studio · проект</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--accent:#58a6ff;--add:#3fb950;--del:#f85149;--warn:#d29922}
+  *{box-sizing:border-box} html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column}
+  header{padding:11px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  header a{color:var(--accent);text-decoration:none;font-size:13px} header h1{font-size:18px;margin:0}
+  .br{font-family:ui-monospace,monospace;color:var(--accent);font-size:13px}
+  .tabs{display:flex;gap:6px;margin-left:auto}
+  .tabs button{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:16px;padding:4px 12px;font-size:12.5px;cursor:pointer}
+  .tabs button.on{background:#1f6feb;color:#fff;border-color:#1f6feb}
+  main{flex:1;display:flex;min-height:0}
+  .left{width:330px;border-right:1px solid var(--line);overflow:auto;padding:8px}
+  .center{flex:1;overflow:auto;padding:14px 16px}
+  .right{width:300px;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .commit{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--mut);border-radius:8px;padding:7px 10px;margin:6px 0;cursor:pointer}
+  .commit:hover{border-color:var(--accent)} .commit.on{outline:1px solid var(--accent);background:#10243d}
+  .commit.feat{border-left-color:#3fb950} .commit.fix{border-left-color:#f85149}
+  .commit.refactor{border-left-color:#bc8cff} .commit.docs{border-left-color:#58a6ff}
+  .commit.test{border-left-color:#d29922} .commit.perf{border-left-color:#39c5cf} .commit.chore{border-left-color:#8b949e}
+  .commit .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .commit .sha{font-family:ui-monospace,monospace;color:var(--accent);font-size:12px}
+  .commit .delta{font-family:ui-monospace,monospace;font-size:11px;white-space:nowrap}
+  .commit .delta .i{color:var(--add)} .commit .delta .d{color:var(--del)} .commit .delta .f{color:var(--mut)}
+  .commit .subj{font-size:13px;margin-top:2px} .commit .date{color:var(--mut);font-size:11px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--mut);padding:4px 2px 8px}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:3px}
+  pre{background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;font-size:12.5px;line-height:1.5;white-space:pre-wrap}
+  pre .p{color:var(--add)} pre .m{color:var(--del)}
+  .file{display:flex;justify-content:space-between;padding:3px 6px;border-bottom:1px solid #1c2330;font-family:ui-monospace,monospace;font-size:12.5px;cursor:default}
+  .file .d{color:var(--accent)} .file .s{color:var(--mut)}
+  h3{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:0 0 8px}
+  .log{flex:1;overflow:auto;padding:10px 12px;font-size:13px}
+  .log .m{border:1px solid var(--line);border-radius:8px;padding:5px 9px;margin:5px 0}
+  .log .m.cl{border-color:var(--accent);background:#10243d} .log .m .t{color:var(--mut);font-size:11px}.log .m.cl .t{color:var(--accent)}
+  form{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+  input,textarea{flex:1;background:#0f1420;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:8px 10px;font:inherit}
+  textarea{resize:vertical;min-height:42px;max-height:200px}
+  button.send{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:8px 13px;font-weight:600;cursor:pointer;align-self:flex-end}
+  .kpi{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px}
+  .kpi div{background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:8px 13px}
+  .kpi .v{font-size:20px;font-weight:700} .kpi .l{font-size:11px;color:var(--mut)}
+  .bars{display:flex;align-items:flex-end;gap:2px;height:128px;background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:8px;overflow-x:auto}
+  .bars .b{flex:0 0 9px;min-height:2px;border-radius:2px 2px 0 0;cursor:pointer;opacity:.9} .bars .b:hover{opacity:1}
+  .tt{border-collapse:collapse;font-size:13px;margin:4px 0}
+  .tt td,.tt th{border:1px solid var(--line);padding:4px 11px;text-align:left} .tt th{background:#1c2330}
+  .tt .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  .ptrace .st{border-left:3px solid var(--mut);padding:3px 9px;margin:4px 0;background:#0f1420;border-radius:0 7px 7px 0;font-size:12.5px}
+  .ptrace .st.hyp{border-left-color:#bc8cff}.ptrace .st.check{border-left-color:#58a6ff}.ptrace .st.found{border-left-color:#d29922}.ptrace .st.fix,.ptrace .st.done{border-left-color:#3fb950}
+  .ptrace .st .k{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--mut)} .ptrace .st .y{color:var(--mut);font-size:11.5px}
+  .cmdbar{display:flex;flex-wrap:wrap;gap:5px;padding:6px 10px;border-top:1px solid var(--line)}
+  .chip{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:16px;padding:3px 9px;font-size:11.5px;cursor:pointer}
+  .chip:hover{border-color:var(--accent)} .chip.cli{color:#e3b341;border-style:dashed}
+  .md{font-size:14px;line-height:1.65} .md h1,.md h2,.md h3{color:var(--fg);border:0;margin:12px 0 6px} .md code{background:#1f2630;padding:1px 5px;border-radius:4px} .md pre{background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:10px} .md table{border-collapse:collapse} .md td,.md th{border:1px solid var(--line);padding:4px 9px} .md a{color:var(--accent)} .md blockquote{border-left:3px solid var(--line);margin:0;padding-left:12px;color:var(--mut)}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+</head>
+<body>
+<header>
+  <a href="/">← проекты</a>
+  <h1 id="nm">…</h1><span class="br" id="br"></span>
+  <div class="tabs">
+    <button id="t-analysis" class="on" onclick="tab('analysis')">анализ</button>
+    <button id="t-commits" onclick="tab('commits')">история</button>
+    <button id="t-status" onclick="tab('status')">статус</button>
+    <button id="t-files" onclick="tab('files')">файлы</button>
+    <button id="t-judge" onclick="tab('judge')">суждения</button>
+    <button id="t-brain" onclick="tab('brain')">🧠 граф</button>
+  </div>
+</header>
+<main>
+  <div class="left" id="left"></div>
+  <div class="center" id="center"><p style="color:var(--mut)">выбери коммит слева — покажу дельту (diffstat)</p></div>
+  <aside class="right">
+    <div class="log" id="log"></div>
+    <div class="cmdbar" id="cmdbar"></div>
+    <form onsubmit="return send()"><textarea id="in" rows="2" placeholder="спроси про проект… (Enter — отправить, Shift+Enter — строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button class="send">▶</button></form>
+  </aside>
+</main>
+<script>
+  const P = new URLSearchParams(location.search).get("name") || "";
+  let mode="analysis";
+  document.getElementById("nm").textContent = P;
+  async function head(){
+    const ps = await (await fetch("/api/projects",{cache:"no-store"})).json();
+    const me = ps.find(x=>x.name===P); if(me) document.getElementById("br").textContent="⎇ "+me.branch;
+  }
+  function tab(m){ mode=m; for(const id of ["analysis","commits","status","files","judge","brain"]) document.getElementById("t-"+id).classList.toggle("on",id===m); render(); }
+  const KCOL={feat:"#3fb950",fix:"#f85149",refactor:"#bc8cff",docs:"#58a6ff",test:"#d29922",perf:"#39c5cf",chore:"#8b949e"};
+  async function render(){
+    const L=document.getElementById("left"), C=document.getElementById("center");
+    if(mode==="analysis"){ await renderAnalysis(L,C); return; }
+    if(mode==="judge"){ L.innerHTML="<p style='color:var(--mut);font-size:12px;padding:6px'>глубокий разбор проекта (граф+карточки+таблицы). Собираю по запросу «суждения "+P+"».</p>";
+      C.innerHTML="<iframe src='/judgement?p="+encodeURIComponent(P)+"' style='width:100%;height:82vh;border:0;border-radius:8px;background:#0d1117'></iframe>"; return; }
+    if(mode==="brain"){ L.innerHTML="<p style='color:var(--mut);font-size:12px;padding:6px'>граф суждений проекта: узлы=суждения/состояния/факты, рёбра=связи; <b style='color:#f85149'>красный пунктир = невозможные</b> (ломают изометрию/superset). Клик = детали / почему нельзя.</p>";
+      C.innerHTML="<iframe src='/brain.html?p="+encodeURIComponent(P)+"' style='width:100%;height:82vh;border:0;border-radius:8px;background:#0d1117'></iframe>"; return; }
+    if(mode==="commits"){
+      const cs = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=log",{cache:"no-store"})).json();
+      const legend = `<div class="legend">
+        <span><i style="background:#3fb950"></i>feat</span><span><i style="background:#f85149"></i>fix</span>
+        <span><i style="background:#bc8cff"></i>refactor</span><span><i style="background:#58a6ff"></i>docs</span>
+        <span><i style="background:#d29922"></i>test</span><span><i style="background:#8b949e"></i>chore</span></div>`;
+      L.innerHTML = legend + cs.map(c=>`<div class="commit ${kindOf(c.subj)}" onclick="showCommit('${c.sha}',this)">
+        <div class="row"><span class="sha">${c.sha}</span><span class="delta"><span class="i">+${c.ins||0}</span> <span class="d">−${c.del||0}</span> <span class="f">·${c.files||0}f</span></span></div>
+        <div class="subj">${esc(c.subj)}</div><div class="date">${c.date}</div></div>`).join("");
+    } else if(mode==="status"){
+      const s = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=status",{cache:"no-store"})).json();
+      L.innerHTML=""; C.innerHTML="<h3>git status</h3><pre>"+colorize(s.text||"(чисто)")+"</pre>";
+    } else if(mode==="files"){
+      browse("");
+    }
+  }
+  async function renderAnalysis(L,C){
+    const cs = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=log",{cache:"no-store"})).json();
+    if(!cs.length){ C.innerHTML="<p style='color:var(--mut)'>нет git-данных</p>"; L.innerHTML=""; return; }
+    let sIns=0,sDel=0,sFiles=0; const byType={};
+    cs.forEach(c=>{ sIns+=c.ins||0; sDel+=c.del||0; sFiles+=c.files||0; const k=kindOf(c.subj); byType[k]=(byType[k]||0)+1; });
+    const tl=[...cs].reverse(); const maxCh=Math.max(...tl.map(c=>(c.ins||0)+(c.del||0)),1);
+    const churnBars=tl.map(c=>{const ch=(c.ins||0)+(c.del||0);const h=4+Math.round(ch/maxCh*112);
+      return `<div class="b" style="height:${h}px;background:${KCOL[kindOf(c.subj)]}" title="${c.sha} +${c.ins}/-${c.del} · ${esc(c.subj)}" onclick="tab('commits')"></div>`;}).join("");
+    const day={}; cs.forEach(c=>{day[c.date]=(day[c.date]||0)+1;});
+    const days=Object.keys(day).sort(); const maxD=Math.max(...Object.values(day),1);
+    const cadBars=days.map(d=>{const h=4+Math.round(day[d]/maxD*112);
+      return `<div class="b" style="height:${h}px;background:#58a6ff" title="${d}: ${day[d]} коммитов"></div>`;}).join("");
+    const typeRows=Object.entries(byType).sort((a,b)=>b[1]-a[1]).map(([k,n])=>
+      `<tr><td><span class="sw" style="background:${KCOL[k]||'#8b949e'}"></span>${k}</td><td>${n}</td><td>${(n/cs.length*100).toFixed(0)}%</td></tr>`).join("");
+    C.innerHTML=`
+      <div class="kpi">
+        <div><div class="v">${cs.length}</div><div class="l">коммитов (посл.50)</div></div>
+        <div><div class="v" style="color:var(--add)">+${sIns}</div><div class="l">вставок</div></div>
+        <div><div class="v" style="color:var(--del)">−${sDel}</div><div class="l">удалений</div></div>
+        <div><div class="v">${sFiles}</div><div class="l">файл-правок</div></div>
+      </div>
+      <h3>веса морфизмов · churn по коммитам (старые→новые · цвет=тип · клик→история)</h3>
+      <div class="bars">${churnBars}</div>
+      <h3>каденция · коммитов в день</h3>
+      <div class="bars">${cadBars}</div>
+      <h3>распределение по типам</h3>
+      <table class="tt"><tr><th>тип</th><th>n</th><th>доля</th></tr>${typeRows}</table>
+      <h3>🧠 рассуждения (живой trace)</h3>
+      <div class="ptrace" id="ptrace"><span style="color:var(--mut)">пока пусто</span></div>`;
+    L.innerHTML=`<div class="legend">
+      <span><i style="background:#3fb950"></i>feat</span><span><i style="background:#f85149"></i>fix</span>
+      <span><i style="background:#bc8cff"></i>refactor</span><span><i style="background:#58a6ff"></i>docs</span>
+      <span><i style="background:#d29922"></i>test</span><span><i style="background:#8b949e"></i>chore</span></div>
+      <p style="color:var(--mut);font-size:12px;padding:6px">Анализ git-истории: метрики, распределения, графики. Рантайм-метрики (FPS/латентность) — позже через БД.</p>`;
+    pollPtrace();
+  }
+  async function pollPtrace(){
+    const el=document.getElementById("ptrace"); if(!el) return;
+    try{ const a=await (await fetch("/trace",{cache:"no-store"})).json();
+      if(a.length) el.innerHTML=a.slice(-8).map(s=>`<div class="st ${s.kind||'note'}"><span class="k">${s.kind||''}</span> ${esc(s.what||'')}${s.why?`<div class="y">↳ ${esc(s.why)}</div>`:''}</div>`).join("");
+    }catch(e){}
+  }
+  async function browse(sub){
+    const r = await (await fetch("/api/files?p="+encodeURIComponent(P)+"&sub="+encodeURIComponent(sub),{cache:"no-store"})).json();
+    const up = sub ? `<div class="file" style="cursor:pointer" onclick="browse('${sub.split('/').slice(0,-1).join('/')}')"><span class="d">⬆ ..</span></div>`:"";
+    document.getElementById("left").innerHTML = up + (r.entries||[]).map(e=>{
+      const path = sub? sub+"/"+e.name : e.name;
+      const click = e.dir ? `onclick="browse('${path}')"` : `onclick="openFile('${path}')"`;
+      return `<div class="file" style="cursor:pointer" ${click}>
+        <span class="${e.dir?'d':''}">${e.dir?'📁 ':'📄 '}${e.name}</span><span class="s">${e.dir?'':e.size+' b'}</span></div>`;
+    }).join("");
+    document.getElementById("center").innerHTML="<h3>дерево: /"+sub+"</h3><p style='color:var(--mut)'>клик по файлу — покажу содержимое (md рендерится)</p>";
+  }
+  function extLang(p){ const e=(p.split('.').pop()||'').toLowerCase();
+    return ({cpp:'cpp',cc:'cpp',cxx:'cpp',h:'cpp',hpp:'cpp',c:'c',py:'python',js:'javascript',mjs:'javascript',
+      ts:'typescript',json:'json',sh:'bash',bash:'bash',java:'java',html:'xml',xml:'xml',css:'css',
+      md:'markdown',yml:'yaml',yaml:'yaml',cmake:'cmake',toml:'ini',ini:'ini',rs:'rust',go:'go'})[e]||'plaintext'; }
+  async function openFile(path){
+    const r = await (await fetch("/api/file?p="+encodeURIComponent(P)+"&path="+encodeURIComponent(path),{cache:"no-store"})).json();
+    const C=document.getElementById("center");
+    if(/\.md$/i.test(path) && window.marked){
+      C.innerHTML="<h3>📄 "+esc(path)+"</h3><div class='md' id='mdbox'></div>";
+      document.getElementById('mdbox').innerHTML=marked.parse(r.text||"");
+      if(window.hljs) document.querySelectorAll('#mdbox pre code').forEach(b=>hljs.highlightElement(b));
+    } else {
+      C.innerHTML="<h3>📄 "+esc(path)+" · "+(r.size||0)+" b</h3><pre><code class='language-"+extLang(path)+"' id='codebox'></code></pre>";
+      const cb=document.getElementById('codebox'); cb.textContent=r.text||"";
+      if(window.hljs) hljs.highlightElement(cb);
+    }
+  }
+  const esc = s => (''+s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  function kindOf(subj){
+    const m = (''+subj).toLowerCase().match(/^(\w+)/);
+    const t = m ? m[1] : "";
+    if(["feat","fix","refactor","docs","test","perf"].includes(t)) return t;
+    return "chore";
+  }
+  function colorize(t){ return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").split("\n").map(l=>{
+    if(l.startsWith("+"))return "<span class='p'>"+l+"</span>"; if(l.startsWith("-"))return "<span class='m'>"+l+"</span>"; return l;}).join("\n"); }
+  async function showCommit(sha, el){
+    document.querySelectorAll(".commit").forEach(c=>c.classList.remove("on")); if(el)el.classList.add("on");
+    const r = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=show&sha="+sha,{cache:"no-store"})).json();
+    document.getElementById("center").innerHTML="<h3>дельта коммита "+sha+"</h3><pre>"+colorize(r.text||"")+"</pre>";
+  }
+  async function say(t){ if(!t)return; try{ await fetch("/say?text="+encodeURIComponent("["+P+"] "+t)); }catch(e){} }
+  function send(){ const i=document.getElementById("in"); say(i.value.trim()); i.value=""; return false; }
+  async function poll(){ try{ const a=await (await fetch("/log",{cache:"no-store"})).json();
+    document.getElementById("log").innerHTML=a.map(m=>{const cl=m.role==="claude";
+      return "<div class='m"+(cl?" cl":"")+"'><div class='t'>"+(cl?"Claude":"ты")+" · "+(m.ts||"")+"</div>"+(m.text||"").replace(/</g,"&lt;")+"</div>";}).join("");
+    const lg=document.getElementById("log"); lg.scrollTop=lg.scrollHeight; }catch(e){} }
+  async function loadCommands(){
+    try{ const cmds=await (await fetch("/api/commands",{cache:"no-store"})).json(); window.__CMDS=cmds;
+      document.getElementById("cmdbar").innerHTML=cmds.map((c,i)=>
+        `<span class="chip ${c.group==='CLI'?'cli':''}" onclick="cmd(${i})" title="${c.send?'→ в чат':'копировать для терминала'}">${c.label}</span>`).join("");
+    }catch(e){}
+  }
+  function cmd(i){ const c=(window.__CMDS||[])[i]; if(!c) return;
+    if(c.send){ fetch("/say?text="+encodeURIComponent(c.send)); }
+    else if(c.copy){ if(navigator.clipboard) navigator.clipboard.writeText(c.copy); }
+  }
+  head(); render(); poll(); loadCommands(); setInterval(()=>{poll();pollPtrace();}, 3000);
+</script>
+</body></html>

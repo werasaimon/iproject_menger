@@ -107,7 +107,7 @@ function renderGraph(){
         {selector:"edge[!ok]",style:{"line-style":"dashed","width":3,"target-arrow-shape":"tee"}}
       ],
       layout:{name:"dagre",animate:false,padding:40,rankDir:"TB",nodeSep:60,rankSep:80}})
-    .on("tap","node",e=>showNode(e.target.data("label"),e.target.data("kind"),e.target.data("evidence")||"",e.target.data("file")||""))
+    .on("tap","node",e=>showNode(e.target.data("label"),e.target.data("kind"),e.target.data("evidence")||"",e.target.data("file")||"",e.target.id()))
     .on("tap","edge",e=>show((e.target.data("ok")?"":"НЕВОЗМОЖНО · ")+e.target.data("rel"),lbl[e.target.data("source")]+" → "+lbl[e.target.data("target")],e.target.data("ok")?"":e.target.data("why")))
     .on("tap",function(e){if(e.target===this) document.getElementById("info").style.display="none";});
     // connections table
@@ -133,18 +133,21 @@ function show(t,sub,why){const info=document.getElementById("info");info.style.d
 function jumpFile(path,line){window.parent.postMessage({cmd:"openFile",path:path,line:line},"*");}
 
 function symbolFrom(label){
-  // snake_case (function/method names) — prefer longest
-  const snake=(label.match(/[a-z][a-z0-9]*(?:_[a-z0-9]+)+/g)||[]).sort((a,b)=>b.length-a.length);
+  // take only the part before · or newline (the "key" token)
+  const key = label.split(/\s*[·•\n]\s*/)[0].trim();
+  const src = key || label;
+  // snake_case with optional uppercase start: H_raw, disparity_std_px, load_from_file
+  const snake=(src.match(/[a-zA-Z][a-zA-Z0-9]*(?:_[a-zA-Z0-9]+)+/g)||[]).sort((a,b)=>b.length-a.length);
   if(snake.length) return snake[0];
-  // CamelCase — must have lowercase after first capital (skip ALL_CAPS like BREAKING)
-  const camel=(label.match(/[A-Z][a-z][a-zA-Z0-9]{2,}/g)||[]).sort((a,b)=>b.length-a.length);
+  // CamelCase — must have lowercase after first capital (skip ALL_CAPS)
+  const camel=(src.match(/[A-Z][a-z][a-zA-Z0-9]{2,}/g)||[]).sort((a,b)=>b.length-a.length);
   if(camel.length) return camel[0];
-  // fallback: longest lowercase word ≥5 chars
-  const w=(label.match(/[a-z]{5,}/g)||[]).sort((a,b)=>b.length-a.length);
+  // fallback: longest lowercase ASCII word ≥5 chars in key part only
+  const w=(key.match(/[a-z]{5,}/g)||[]).sort((a,b)=>b.length-a.length);
   return w.length?w[0]:"";
 }
 
-async function showNode(label,kind,evidence,file){
+async function showNode(label,kind,evidence,file,nodeId){
   show(label, kind+(evidence?" · "+evidence:""), "");
   const info=document.getElementById("info");
   info.innerHTML+="<div id='filinks' style='margin-top:6px;font-size:11px;color:var(--mut)'>🔎 ищу файл…</div>";
@@ -153,19 +156,26 @@ async function showNode(label,kind,evidence,file){
     if(file && file.includes("/")){
       hits=[{file:file,line:1,snippet:"",exact:true}];
     } else {
-      const sym=symbolFrom(label);
+      // use symbolFrom; if empty fall back to node id
+      const sym=symbolFrom(label)||(nodeId||"").replace(/^s_/,"");
       if(!sym){ document.getElementById("filinks").textContent="концептуальный узел"; return; }
       const r=await fetch("/api/find?p="+encodeURIComponent(P)+"&q="+encodeURIComponent(sym),{cache:"no-store"});
+      if(!r.ok) throw new Error("HTTP "+r.status);
       hits=await r.json();
+      // if primary sym found nothing and sym≠nodeId, retry with nodeId
+      if((!hits||!hits.length) && nodeId && nodeId !== sym){
+        const r2=await fetch("/api/find?p="+encodeURIComponent(P)+"&q="+encodeURIComponent(nodeId),{cache:"no-store"});
+        if(r2.ok) hits=await r2.json();
+      }
     }
     const fl=document.getElementById("filinks");
     if(!fl) return;
-    if(!hits||!hits.length){ fl.textContent="файл не найден"; return; }
+    if(!hits||!hits.length){ fl.textContent="файл не найден (концептуальный узел)"; return; }
     fl.innerHTML="<div style='margin-bottom:3px;color:var(--mut)'>→ файлы:</div>"
       +hits.map(h=>`<div style='margin:2px 0'><a href='#' style='color:var(--accent);font-size:11px;font-family:ui-monospace,monospace'
         onclick='event.preventDefault();jumpFile(${JSON.stringify(h.file)},${h.line})'>${esc(h.file)}:${h.line}</a>
         <span style='color:var(--mut);font-size:10px;margin-left:4px'>${esc((h.snippet||"").slice(0,50))}</span></div>`).join("");
-  }catch(e){ const fl=document.getElementById("filinks"); if(fl) fl.textContent=""; }
+  }catch(e){ const fl=document.getElementById("filinks"); if(fl) fl.textContent="⚠ "+e.message; }
 }
 
 // load graph list first, then render first graph

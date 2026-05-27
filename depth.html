@@ -37,9 +37,16 @@ a{color:var(--acc);text-decoration:none}
   <div class="k"><div class="v" id="v-std">—</div><div class="l">std, px (джиттер)</div></div>
   <div class="k"><div class="v" id="v-entropy">—</div><div class="l">H (энтропия шума)</div></div>
   <div class="k"><div class="v" id="v-zmean">—</div><div class="l">Z mean, м</div></div>
+  <div class="k"><div class="v" id="v-sigmaz" style="color:var(--warn)">—</div><div class="l">σ_Z, см (ошибка Z)</div></div>
   <div class="k"><div class="v" id="v-fill">—</div><div class="l">fill rate %</div></div>
   <div class="k"><div class="v" id="v-pts">—</div><div class="l">точек</div></div>
   <div class="k"><div class="v" id="v-worst">—</div><div class="l">worst cell std</div></div>
+</div>
+
+<div style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:11px;color:var(--mut)">
+  <span style="color:var(--warn);font-weight:700">σ_Z = Z² · σ_d / (f · B)</span>
+  &nbsp;·&nbsp; f=397.5px &nbsp;·&nbsp; B=0.1028m &nbsp;·&nbsp; f·B≈40.9 &nbsp;·&nbsp;
+  <span id="physics-line">…</span>
 </div>
 
 <div class="row">
@@ -64,6 +71,16 @@ a{color:var(--acc);text-decoration:none}
   <div class="card">
     <h2>📡 fill rate % · точек</h2>
     <canvas id="chart2" height="120"></canvas>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h2>📐 σ_Z (ошибка глубины, см) · Z mean — история</h2>
+    <canvas id="chart3" height="120"></canvas>
+    <div style="margin-top:4px;font-size:10px;color:var(--mut)">
+      σ_Z = Z² · σ_d / (f·B) — ошибка растёт квадратично с расстоянием
+    </div>
   </div>
 </div>
 
@@ -181,19 +198,30 @@ async function tick(){
     document.getElementById('status').textContent = '● live';
     document.getElementById('status').style.color = 'var(--ok)';
     const m = d.metrics||{};
+    const FB = 397.492 * 0.102783;  // f·B ≈ 40.87 px·m
+    const sz = m.z_mean_m && m.disparity_std_px
+               ? m.z_mean_m * m.z_mean_m * m.disparity_std_px / FB
+               : null;
     document.getElementById('v-std').textContent    = (m.disparity_std_px||0).toFixed(2);
     document.getElementById('v-entropy').textContent = (d.entropy||0).toFixed(3);
     document.getElementById('v-zmean').textContent  = (m.z_mean_m||0).toFixed(2)+'m';
+    document.getElementById('v-sigmaz').textContent = sz != null ? (sz*100).toFixed(1)+'cm' : '—';
     document.getElementById('v-fill').textContent   = (m.fill_rate||0).toFixed(1)+'%';
     document.getElementById('v-pts').textContent    = (m.points||0).toLocaleString();
     document.getElementById('v-worst').textContent  = (d.worst?.std||0).toFixed(2);
+    if(sz!=null){
+      const z=m.z_mean_m, s=m.disparity_std_px;
+      document.getElementById('physics-line').textContent =
+        `при Z=${z.toFixed(2)}m σ_d=${s.toFixed(1)}px → σ_Z≈${(sz*100).toFixed(1)}cm`;
+    }
     updateHeatmap(d.cells||[]);
     buf.push({ts: Date.now()/1000, std: m.disparity_std_px, H: d.entropy,
-              z: m.z_mean_m, fill: m.fill_rate, pts: m.points});
+              z: m.z_mean_m, fill: m.fill_rate, pts: m.points, sz});
     if(buf.length > MAX*2) buf = buf.slice(-MAX);
     const std_vals  = buf.map(b=>b.std);
     const H_vals    = buf.map(b=>b.H);
     const z_vals    = buf.map(b=>b.z);
+    const sz_vals   = buf.map(b=>b.sz!=null ? b.sz*100 : null);
     const fill_vals = buf.map(b=>b.fill);
     const pt_vals   = buf.map(b=>b.pts);
     drawChart(document.getElementById('chart'),[
@@ -205,6 +233,10 @@ async function tick(){
       {data:fill_vals, color:'#3fb950', label:'fill%'},
       {data:pt_vals.map(v=>v/1000), color:'#d29922', label:'kpts'},
     ]);
+    drawChart(document.getElementById('chart3'),[
+      {data:sz_vals,   color:'#d29922', label:'σ_Z cm'},
+      {data:z_vals,    color:'#58a6ff', label:'Z m'},
+    ]);
     drawHist(document.getElementById('hist'), d.cells||[]);
   } catch(e){
     document.getElementById('status').textContent = '✗ '+e.message;
@@ -214,7 +246,11 @@ async function tick(){
 
 // load history
 fetch('/api/depth/history',{cache:'no-store'}).then(r=>r.json()).then(rows=>{
-  buf = rows.map(r=>({ts:r.ts, std:r.std, H:r.entropy, z:r.z_mean, fill:r.fill, pts:r.points}));
+  const FB = 397.492 * 0.102783;
+  buf = rows.map(r=>{
+    const sz = r.z_mean && r.std ? r.z_mean * r.z_mean * r.std / FB : null;
+    return {ts:r.ts, std:r.std, H:r.entropy, z:r.z_mean, fill:r.fill, pts:r.points, sz};
+  });
 }).catch(()=>{});
 
 tick();

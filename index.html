@@ -2,6 +2,7 @@
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DEPZ Studio · исследователь проектов</title>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
 <style>
   :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--accent:#58a6ff;--add:#3fb950;--warn:#d29922}
   *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
@@ -12,7 +13,13 @@
   .wrap{max-width:1000px;margin:0 auto;padding:24px 20px 40px}
   h2{font-size:15px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 12px}
   .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  @media(max-width:720px){.cards{grid-template-columns:1fr}}
+  @media(max-width:720px){
+    .cards{grid-template-columns:1fr}
+    /* graph iframe — менше місця на маленькому екрані, контент адаптується сам */
+    .spoiler-block iframe#inline-graph{min-height:420px}
+    /* батьківський div з inline-height:520px переоверайдити через flex auto */
+    details.spoiler-block > summary + div[style*="520px"]{height:auto !important;min-height:460px}
+  }
   a.card{display:block;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;text-decoration:none;color:var(--fg);transition:.12s}
   a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
   .card .nm{font-size:18px;font-weight:700}
@@ -22,9 +29,9 @@
   .card .path{font-size:11.5px;color:#6e7681;margin-top:6px;font-family:ui-monospace,monospace}
   .chat{margin-top:28px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
   .chat h2{margin:0 0 8px}
-  .log{max-height:180px;overflow:auto;font-size:13px}
-  .log .m{border:1px solid var(--line);border-radius:8px;padding:5px 9px;margin:5px 0}
-  .log .m.cl{border-color:var(--accent);background:#10243d} .log .m .t{color:var(--mut);font-size:11px}.log .m.cl .t{color:var(--accent)}
+  .log{max-height:380px;overflow:auto;font-size:13px}
+  .log .m{border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:5px 0}
+  .log .m.cl{border-color:var(--accent);background:#0d1f35;border-left:3px solid var(--accent)} .log .m .t{color:var(--mut);font-size:11px}.log .m.cl .t{color:var(--accent)}
   form{display:flex;gap:8px;margin-top:8px;align-items:flex-end} input,textarea{flex:1;background:#0f1420;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:8px 10px;font:inherit}
   textarea{resize:vertical;min-height:42px;max-height:220px}
   button{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}
@@ -41,9 +48,45 @@
   .critic{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--del);border-radius:12px;padding:12px 14px}
   .critic h2{margin:0 0 8px;color:#ff7b72}
   .critic pre{white-space:pre-wrap;font-size:12.5px;line-height:1.5;max-height:340px;overflow:auto;background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0}
+  .spoiler-block{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .spoiler-block summary{padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:6px}
+  .spoiler-block summary::-webkit-details-marker{display:none}
+  .spoiler-block summary::before{content:"▶";font-size:10px;color:var(--mut);transition:transform .2s;display:inline-block;margin-right:4px}
+  .spoiler-block[open] summary::before{transform:rotate(90deg)}
+  .spoiler-block .steps{padding:8px 14px 12px}
+  .spoiler-block pre{white-space:pre-wrap;font-size:12.5px;line-height:1.5;max-height:340px;overflow:auto;background:#0f1420;border-top:1px solid var(--line);padding:10px 12px;margin:0}
+  .brain-panel{margin-top:20px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .brain-hdr{padding:8px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600}
+  .brain-hdr span.muted{color:var(--mut);font-weight:400;font-size:12px;margin-left:auto}
+  #brain-cy{height:200px;background:#080c12}
+  .brain-info{padding:5px 14px 8px;font-size:11px;color:var(--mut);font-family:monospace;min-height:20px}
+  @keyframes nodePulse{0%{opacity:1}50%{opacity:.45}100%{opacity:1}}
   .cmdbar{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
   .chip{background:#1f2630;color:#cfe5ff;border:1px solid var(--line);border-radius:16px;padding:4px 10px;font-size:12px;cursor:pointer}
   .chip:hover{border-color:var(--accent)} .chip.cli{color:#e3b341;border-style:dashed}
+  .aibar{display:flex;gap:6px;margin:6px 0 2px;flex-wrap:wrap;align-items:center}
+  .aibtn{background:#1f2630;border:1px solid var(--line);border-radius:14px;padding:3px 11px;font-size:12px;cursor:pointer;color:var(--mut);transition:.12s;display:flex;align-items:center;gap:5px}
+  .aibtn:hover,.aibtn.active{border-color:var(--accent);color:var(--fg)}
+  .aibtn.active{font-weight:700}
+  .aibtn[data-ai="claude"].active{border-color:#58a6ff;color:#58a6ff;background:#10243d}
+  .aibtn[data-ai="codex"].active{border-color:#e3b341;color:#e3b341;background:#1f1a0a}
+  .aibtn[data-ai="gemini"].active{border-color:#bc8cff;color:#bc8cff;background:#1a1030}
+  /* agent status dot */
+  .adot{width:6px;height:6px;border-radius:50%;background:#30363d;flex:none;transition:.3s}
+  .adot.idle{background:#3fb950}
+  .adot.busy{background:#e3b341;animation:dotPulse .7s ease-in-out infinite}
+  .adot.done{background:#58a6ff}
+  @keyframes dotPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+  /* quick actions */
+  .qa-bar{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px;padding:8px 0 4px;border-top:1px solid var(--line)}
+  .qa-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:16px;font-size:12px;cursor:pointer;border:1px solid transparent;transition:.15s;font-weight:500;user-select:none}
+  .qa-btn:hover{filter:brightness(1.2);transform:translateY(-1px)}
+  .qa-btn:active{transform:translateY(0);filter:brightness(.9)}
+  .qa-btn.qa-codex{background:#1f1a0a;border-color:#9e6a03;color:#e3b341}
+  .qa-btn.qa-claude{background:#10243d;border-color:#1f6feb;color:#58a6ff}
+  .qa-btn.qa-gemini{background:#1a1030;border-color:#6e40c9;color:#bc8cff}
+  .qa-btn.qa-sys{background:#161b22;border-color:#30363d;color:#8b949e}
+  .qa-badge{font-size:9px;opacity:.7;font-weight:400}
   .fb{margin-top:3px} .fb b{cursor:pointer;font-size:13px;margin-right:10px;opacity:.65} .fb b:hover{opacity:1}
   .log .chatimg{max-width:100%;border-radius:6px;margin-top:5px;display:block;border:1px solid var(--line)}
   #clipbtn{background:none;border:none;cursor:pointer;align-self:flex-end;padding:5px 4px;font-size:20px;color:var(--mut);white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;border-radius:8px;transition:.15s}
@@ -65,20 +108,58 @@
   .ch-q{font-size:13px;color:#d2ffd2;margin-bottom:8px;font-weight:600}
   .ch-b{display:inline-block;margin:4px 6px 4px 0;padding:7px 16px;background:#1a4a22;color:#56d364;border:1px solid #3fb950;border-radius:20px;cursor:pointer;font-size:13px;font-weight:600;transition:.12s}
   .ch-b:hover{background:#3fb950;color:#000}
+  /* graph drawer */
+  #graph-overlay{display:none}
+  #graph-drawer{position:fixed;inset:0;transform:translateY(100%);
+    background:#0d1117;z-index:999;
+    transition:transform .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column}
+  #graph-drawer.open{transform:translateY(0)}
+  #graph-dhdr{padding:9px 14px;border-bottom:1px solid #30363d;display:flex;align-items:center;
+    gap:10px;font-size:13px;font-weight:700;background:#161b22;flex:none}
+  #graph-dhdr .gbtn{margin-left:auto;background:none;border:1px solid #30363d;border-radius:8px;
+    padding:3px 10px;font-size:11px;color:#8b949e;cursor:pointer}
+  #graph-dhdr .gbtn:hover{border-color:#f85149;color:#f85149}
+  #graph-frame{flex:1;border:none;width:100%;background:#0d1117}
+  #graph-toggle{margin-left:auto;background:#1f2630;border:1px solid #30363d;border-radius:12px;
+    padding:4px 12px;font-size:12px;color:#8b949e;cursor:pointer;transition:.15s;font-weight:600}
+  #graph-toggle:hover,#graph-toggle.on{border-color:#58a6ff;color:#58a6ff;background:#10243d}
 </style></head>
 <body>
 <header><h1>🛰 DEPZ Studio</h1><span id="live" class="live off">●</span>
-  <span style="color:var(--mut);font-size:13px;margin-left:auto">исследователь проектов</span></header>
+  <button id="graph-toggle" onclick="toggleGraph()" title="LangGraph — граф агентов и шагов Claude">🕸 граф агентов</button>
+</header>
+<div id="graph-overlay" onclick="toggleGraph()"></div>
+<div id="graph-drawer">
+  <div id="graph-dhdr">
+    🕸 LangGraph — граф агентов
+    <span style="color:#8b949e;font-weight:400;font-size:11px">dispatch · Claude шаги · события</span>
+    <button class="gbtn" onclick="toggleGraph()">✕ закрыть</button>
+  </div>
+  <iframe id="graph-frame" src="" title="Agent graph"></iframe>
+</div>
 <div class="wrap">
   <h2>Проекты</h2>
   <div class="cards" id="cards">загрузка…</div>
 
   <div class="chat">
-    <h2>Чат с Claude (пара)</h2>
+    <h2>Чат с Claude (пара) <span style="font-size:12px;color:#3fb950">· v3 (busy-гейт)</span></h2>
     <div class="log" id="log"></div>
     <div class="think" id="think"><span class="dots"><i></i><i></i><i></i></span><span class="tx" id="thinktx">думаю…</span><span class="el" id="thinkel"></span></div>
     <div id="choices"></div>
     <div class="cmdbar" id="cmdbar"></div>
+    <div class="aibar">
+      <button class="aibtn active" data-ai="claude" onclick="setAI('claude')"><span class="adot" id="dot-claude"></span>🤖 Claude</button>
+      <button class="aibtn" data-ai="codex" onclick="setAI('codex')"><span class="adot" id="dot-codex"></span>⚡ Codex</button>
+      <button class="aibtn" data-ai="gemini" onclick="setAI('gemini')"><span class="adot" id="dot-gemini"></span>✦ Gemini</button>
+      <span style="font-size:11px;color:var(--mut);margin-left:4px" id="agent-h-badge"></span>
+    </div>
+    <div class="qa-bar" id="qa-bar">
+      <button class="qa-btn qa-codex" onclick="qa('@codex ./sdk_master.sh build')" title="cmake --build istereolab-sdk">🔨 Build SDK<span class="qa-badge">codex</span></button>
+      <button class="qa-btn qa-codex" onclick="qa('@codex cd /home/wera_n/GIT/depz-toolkit && cmake --build build -j$(nproc)')" title="собрать depz-toolkit">🔧 Build Toolkit<span class="qa-badge">codex</span></button>
+      <button class="qa-btn qa-codex" onclick="qa('@codex .venv/bin/pytest tests/ -v --tb=short 2>&1 | tail -40')" title="запустить тесты">🧪 Tests<span class="qa-badge">codex</span></button>
+      <button class="qa-btn qa-claude" onclick="qa('покажи статус камеры и текущие параметры фильтров')" title="спросить Claude про статус">📊 Status<span class="qa-badge">claude</span></button>
+      <button class="qa-btn qa-gemini" onclick="qa('@gemini объясни последние изменения в istereolab-sdk и что это даёт')" title="Gemini объясняет SDK">✦ Explain SDK<span class="qa-badge">gemini</span></button>
+    </div>
     <input type="file" id="fup" style="position:absolute;left:-9999px;top:-9999px" onchange="upimg(this)">
     <form onsubmit="return send()">
       <button type="button" id="clipbtn" title="прикрепить файл" onclick="document.getElementById('fup').click()">📎</button>
@@ -87,17 +168,38 @@
     </form>
   </div>
 
-  <div class="trace">
-    <h2>🧠 Процесс рассуждения Claude (живой)</h2>
-    <div class="steps" id="steps"><span style="color:var(--mut)">шаги появятся во время работы / отладки…</span></div>
-  </div>
+  <details class="spoiler-block" open>
+    <summary>🕸 LangGraph — граф агентов и шагов Claude</summary>
+    <div style="height:520px;display:flex;flex-direction:column">
+      <iframe id="inline-graph" src="/graph.html" style="flex:1;border:none;width:100%;background:#0d1117"></iframe>
+    </div>
+  </details>
 
-  <div class="critic">
-    <h2>🔪 Критик (codex · объективный) <button onclick="critToChat()" style="font-size:12px;padding:3px 9px;background:#1f6feb;border:0;border-radius:14px;color:#fff;cursor:pointer">→ в чат, исправим</button></h2>
+  <details class="spoiler-block">
+    <summary>🧠 Процесс рассуждения Claude (живой)</summary>
+    <div class="steps" id="steps"><span style="color:var(--mut)">шаги появятся во время работы / отладки…</span></div>
+  </details>
+
+  <details class="spoiler-block">
+    <summary>🔪 Критик (codex · объективный) <button onclick="event.preventDefault();critToChat()" style="font-size:12px;padding:3px 9px;background:#1f6feb;border:0;border-radius:14px;color:#fff;cursor:pointer;margin-left:10px">→ в чат, исправим</button></summary>
     <pre id="critique">критика появится здесь после запроса «критик &lt;проект&gt;»…</pre>
-  </div>
+  </details>
 </div>
 <script>
+  // ── graph drawer ─────────────────────────────────────────────────────────────
+  let _graphOpen=false;
+  function toggleGraph(){
+    _graphOpen=!_graphOpen;
+    document.getElementById("graph-drawer").classList.toggle("open",_graphOpen);
+    document.getElementById("graph-toggle").classList.toggle("on",_graphOpen);
+    if(_graphOpen){
+      const fr=document.getElementById("graph-frame");
+      if(!fr.src||fr.src==="about:blank"||!fr.src.includes("graph.html"))
+        fr.src="/graph.html";
+    }
+  }
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"&&_graphOpen)toggleGraph();});
+
   async function loadProjects(){
     try{
       const r = await fetch("/api/projects",{cache:"no-store"}); const ps = await r.json();
@@ -114,16 +216,26 @@
   async function say(t,img){ if(!t&&!img) return;
     try{ let url="/say?text="+encodeURIComponent(t||""); if(img) url+="&img="+encodeURIComponent(img);
       await fetch(url); }catch(e){} }
-  function send(){ const i=document.getElementById("in"); const t=i.value.trim(); const img=_pendingImg;
+  let _ai="claude";
+  function setAI(ai){ _ai=ai; document.querySelectorAll(".aibtn").forEach(b=>b.classList.toggle("active",b.dataset.ai===ai)); }
+  function send(){ const i=document.getElementById("in"); let t=i.value.trim(); const img=_pendingImg;
     if(!t&&!img) return false;
+    if(_ai!=="claude" && t) t="@"+_ai+" "+t;
     say(t,img); i.value=""; clearPending(); return false; }
   function addLocal(t){ /* local echo placeholder — no-op */ }
   async function poll(){
     try{ const r=await fetch("/log",{cache:"no-store"}); const a=await r.json();
       document.getElementById("log").innerHTML=a.map(m=>{const cl=m.role==="claude";
+        const mdl=m.model&&m.model!=="claude"?m.model:"";
+        const who=cl?(mdl?"<span style='color:"+(mdl==="codex"?"#e3b341":"#bc8cff")+"'>⚡"+mdl+"</span>":"Claude"):"ты";
         const fbr=cl?"<div class='fb'><b onclick=\"fb('"+(m.ts||'')+"','up')\">👍</b><b onclick=\"fb('"+(m.ts||'')+"','down')\">👎</b></div>":"";
         const img=m.img?"<img class='chatimg' src='/up/"+m.img.split('/').pop()+"'>":"";
-        return "<div class='m"+(cl?" cl":"")+"'><div class='t'>"+(cl?"Claude":"ты")+" · "+(m.ts||"")+"</div>"+(m.text||"").replace(/</g,"&lt;")+img+fbr+"</div>";}).join("");
+        let txt=(m.text||"").replace(/</g,"&lt;");
+        if(mdl) txt=txt.replace(/^\["+mdl+"\]\s*/,"");
+        // auto-link http(s) URLs — runs after escape so it's XSS-safe
+        txt=txt.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g,
+          '<a href="$1" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:underline">$1</a>');
+        return "<div class='m"+(cl?" cl":"")+"'><div class='t'>"+who+" · "+(m.ts||"")+"</div>"+txt+img+fbr+"</div>";}).join("");
       const lg=document.getElementById("log"); lg.scrollTop=lg.scrollHeight;
     }catch(e){}
   }
@@ -191,21 +303,47 @@
   }
   const TI2={Read:"📖 читаю",Edit:"✏️ редактирую",Write:"📝 пишу",Bash:"⚡ выполняю",Grep:"🔎 ищу",Glob:"🗂 сканирую",Agent:"🤖 агент",WebFetch:"🌐 скачиваю",WebSearch:"🔍 ищу в сети",TodoWrite:"✅ задача"};
   async function pollStatus(){
+    const el=document.getElementById("think");
+    const now=Date.now()/1000;
+    // busy is the gate: bin/say sets busy=false on reply → strip status immediately.
+    let busy=false, bat=0, btext="";
     try{ const s=await (await fetch("/status",{cache:"no-store"})).json();
-      const el=document.getElementById("think");
-      if(s.busy){
-        el.classList.add("on");
-        let label = s.text||"думаю…";
-        try{
-          const a=await (await fetch("/activity",{cache:"no-store"})).json();
-          const last=a.filter(e=>e.kind==="tool"||e.kind==="thinking").pop();
-          if(last){ label = last.kind==="tool" ? (TI2[last.tool]||("🔧 "+last.tool)) + (last.text?" · "+last.text.slice(0,60):"") : "🤔 "+last.text.slice(0,80); }
-        }catch(_){}
-        document.getElementById("thinktx").textContent=label;
-        document.getElementById("thinkel").textContent=Math.max(0,Math.round(Date.now()/1000-(s.at||0)))+" c";
-      } else el.classList.remove("on");
-    }catch(e){}
+      busy=!!s.busy; bat=s.at||0; btext=s.text||""; }catch(_){}
+    if(!busy || (now-bat)>120){ el.classList.remove("on"); return; }
+    // While busy: detail with the latest tool call, but only if it happened AFTER wake.
+    let label=btext||"думаю…", since=bat;
+    try{
+      const g=await (await fetch("/api/graph",{cache:"no-store"})).json();
+      const last=g.filter(e=>e.event==="claude_tool").pop();
+      if(last && (last.ts||0)>=bat && (now-(last.ts||0))<15){
+        label=(last.icon||TI2[last.tool]||"🔧")+" "+(TI2[last.tool]?TI2[last.tool].replace(/^\S+\s/,""):last.tool)+(last.what?" · "+last.what.slice(0,60):"");
+        since=last.ts;
+      }
+    }catch(_){}
+    el.classList.add("on");
+    document.getElementById("thinktx").textContent=label;
+    document.getElementById("thinkel").textContent=Math.max(0,Math.round(now-since))+" c";
   }
+  // ── Quick actions & agent status ─────────────────────────────────────────
+  function qa(text){
+    const inp = document.getElementById("in");
+    inp.value = text;
+    inp.focus();
+    // flash the input
+    inp.style.borderColor="#58a6ff";
+    setTimeout(()=>{ inp.style.borderColor=""; }, 600);
+    // auto-send if it starts with @codex / @gemini (non-interactive)
+    if(/^@(codex|gemini)\b/.test(text)) {
+      setTimeout(()=>{ send(); }, 120);
+    }
+  }
+
+  function setAgentDot(agent, state){
+    const d = document.getElementById("dot-"+agent);
+    if(!d) return;
+    d.className = "adot " + state; // idle | busy | done | ""
+  }
+
   loadProjects(); poll(); pollTrace(); pollCritique(); loadCommands(); pollStatus(); pollChoices();
   setInterval(()=>{loadProjects();poll();pollTrace();pollCritique();pollChoices();}, 1500);
   setInterval(pollStatus, 1000);

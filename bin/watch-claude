@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# UserPromptSubmit hook — non-blocking inbox check.
+# If claude_inbox.txt has content, injects it as FROM_SITE: context and clears.
+F=/home/wera_n/GIT/iproject_menger/data/claude_inbox.txt
+[ -s "$F" ] || exit 0
+MSG=$(cat "$F"); rm -f "$F"
+printf 'FROM_SITE:\n%s\n' "$MSG"

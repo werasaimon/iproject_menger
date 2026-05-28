@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""
+Route inbox messages to the right AI CLI based on @prefix.
+All AI workers run as background processes — dispatch returns immediately.
+
+  @codex <task>   → codex CLI (fast, mechanical edits)
+  @gemini <q>     → gemini CLI (research, explanations)
+  (default)       → write to data/claude_inbox.txt for Claude to pick up
+"""
+import sys, os, json, time, pathlib, subprocess, re
+
+D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+REPLY = D / "replies.jsonl"
+STATUS = D / "status.json"
+CLAUDE_INBOX = D / "claude_inbox.txt"
+LOG = D / "dispatch.log"
+
+def _log(msg):
+    try:
+        LOG.open("a").write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
+
+def set_status(busy, text=""):
+    try:
+        STATUS.write_text(json.dumps({"busy": bool(busy), "text": text, "at": time.time()}))
+    except Exception:
+        pass
+
+def write_reply(text, model):
+    entry = {"ts": time.strftime("%H:%M:%S"), "role": "claude",
+             "text": f"[{model}] {text}", "model": model}
+    try:
+        REPLY.open("a").write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        _log(f"write_reply error: {e}")
+
+def run_codex(task):
+    """Fork codex exec and return immediately. Writes reply when done."""
+    _log(f"codex fork: {task[:60]}")
+    def _work():
+        set_status(True, f"⚡ codex: {task[:60]}…")
+        try:
+            r = subprocess.run(
+                ["codex", "exec", task],
+                capture_output=True, text=True, timeout=180,
+                cwd="/home/wera_n/GIT/istereolab-sdk"
+            )
+            out = (r.stdout or "").strip() or (r.stderr or "").strip() or "(нет вывода)"
+            write_reply(out[:3000], "codex")
+        except subprocess.TimeoutExpired:
+            write_reply("(timeout 180s)", "codex")
+        except Exception as e:
+            write_reply(f"(ошибка: {e})", "codex")
+        set_status(False)
+    import threading
+    threading.Thread(target=_work, daemon=True).start()
+
+def run_gemini(question):
+    """Fork gemini and return immediately. Writes reply when done."""
+    _log(f"gemini fork: {question[:60]}")
+    def _work():
+        set_status(True, f"✦ gemini: {question[:60]}…")
+        try:
+            r = subprocess.run(
+                ["gemini", "-p", question],
+                capture_output=True, text=True, timeout=90,
+                cwd="/home/wera_n/GIT/istereolab-sdk"
+            )
+            out = (r.stdout or "").strip() or (r.stderr or "").strip() or "(нет вывода)"
+            write_reply(out[:3000], "gemini")
+        except subprocess.TimeoutExpired:
+            write_reply("(timeout 90s)", "gemini")
+        except Exception as e:
+            write_reply(f"(ошибка: {e})", "gemini")
+        set_status(False)
+    import threading
+    threading.Thread(target=_work, daemon=True).start()
+
+def route_to_claude(text):
+    """Write message to claude_inbox.txt for Claude's watcher."""
+    _log(f"claude inbox: {text[:60]}")
+    try:
+        CLAUDE_INBOX.write_text(text)
+    except Exception as e:
+        _log(f"claude_inbox error: {e}")
+    # Also print for compatibility with the original Claude-reads-stdout flow
+    print("FROM_SITE:")
+    print(text)
+
+if __name__ == "__main__":
+    text = " ".join(sys.argv[1:]).strip() if len(sys.argv) > 1 else sys.stdin.read().strip()
+    if not text:
+        sys.exit(0)
+
+    m = re.match(r"^@(codex|gemini)\s+(.*)", text, re.DOTALL)
+    if m:
+        ai, task = m.group(1), m.group(2).strip()
+        if ai == "codex":
+            run_codex(task)
+        elif ai == "gemini":
+            run_gemini(task)
+        # wait for thread to finish (dispatch itself was already forked by watch)
+        import threading, time as _t
+        deadline = _t.time() + 200
+        while threading.active_count() > 1 and _t.time() < deadline:
+            _t.sleep(0.5)
+    else:
+        route_to_claude(text)

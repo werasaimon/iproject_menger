@@ -5,7 +5,8 @@ python3 - "$*" <<'PY'
 import json, time, sys, pathlib
 D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
 D.joinpath("replies.jsonl").open("a").write(
-    json.dumps({"ts": time.strftime("%H:%M:%S"), "role": "claude", "text": sys.argv[1]},
+    json.dumps({"ts": time.strftime("%H:%M:%S"), "at": time.time(),
+                "role": "claude", "text": sys.argv[1]},
                ensure_ascii=False) + "\n")
 D.joinpath("status.json").write_text(json.dumps({"busy": False, "text": "", "at": time.time()}))
 print("ok")

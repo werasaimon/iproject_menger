@@ -17,7 +17,20 @@ LAN) and the Claude Code agent watching `data/inbox_new`.
 Read-only git: whitelisted subcommands only, project must be registered, sha is
 hex-validated, file paths confined to the project root. LAN only.
 """
-import http.server, socketserver, urllib.parse, pathlib, json, time, subprocess, re, os, datetime, gzip, math
+import http.server, socketserver, urllib.parse, pathlib, json, time, subprocess, re, os, datetime, gzip, math, secrets
+
+# ── LangGraph orchestrator ──
+try:
+    from orchestrator import orchestrator, llm_tracker
+    from orchestration_api import (
+        handle_orchestration_start,
+        handle_orchestration_graph,
+        handle_orchestration_llm,
+        ORCHESTRATION_HTML
+    )
+    HAS_ORCHESTRATION = True
+except ImportError:
+    HAS_ORCHESTRATION = False
 
 BASE   = pathlib.Path(__file__).resolve().parent
 DATA   = BASE / "data"
@@ -36,6 +49,21 @@ def set_status(busy, text=""):
         STATUS.write_text(json.dumps({"busy": bool(busy), "text": text, "at": time.time()}))
     except Exception:
         pass
+
+# ── access token ──
+# A shared secret gating every request, so the server can be exposed over a public
+# tunnel without handing the agent's inbox / git repos to anyone who finds the URL.
+# Persisted (gitignored data/) so the URL survives restarts. Empty file → gate off.
+TOKEN_FILE = DATA / ".token"
+def _load_token():
+    if TOKEN_FILE.exists():
+        t = TOKEN_FILE.read_text().strip()
+        if t:
+            return t
+    t = secrets.token_urlsafe(18)
+    TOKEN_FILE.write_text(t)
+    return t
+TOKEN = _load_token()
 
 PROJECTS = {
     "depz-toolkit":          pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
@@ -97,10 +125,45 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(b)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Access-Control-Allow-Origin", "*")
+        if getattr(self, "_cookie_token", None):
+            self.send_header("Set-Cookie",
+                f"k={self._cookie_token}; Path=/; Max-Age=31536000; SameSite=Lax")
         self.end_headers()
         self.wfile.write(b)
+
+    def _guard(self):
+        """Gate every request behind the shared token (query ?k= once, then cookie).
+
+        LAN addresses (127.x, 192.168.x, 10.x, 172.16-31.x) are trusted and bypass
+        the token check — the key is only needed over the public tunnel.
+        Returns True if allowed; otherwise emits 403 and returns False.
+        """
+        if not TOKEN:
+            return True
+        host = self.client_address[0]
+        if (host.startswith("127.") or host.startswith("192.168.") or
+                host.startswith("10.") or host == "::1" or
+                any(host.startswith(f"172.{i}.") for i in range(16, 32))):
+            return True
+        u = urllib.parse.urlparse(self.path)
+        qk = urllib.parse.parse_qs(u.query).get("k", [""])[0]
+        ck = ""
+        for part in self.headers.get("Cookie", "").split(";"):
+            part = part.strip()
+            if part.startswith("k="):
+                ck = part[2:]
+        if qk == TOKEN:
+            if ck != TOKEN:
+                self._cookie_token = TOKEN
+            return True
+        if ck == TOKEN:
+            return True
+        self._s(403, "forbidden — need access key", "text/plain; charset=utf-8")
+        return False
 
     def _page(self, name):
         for base in (BASE, GRAPHS):
@@ -110,6 +173,8 @@ class H(http.server.BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
+        if not self._guard():
+            return
         u = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
         p = u.path
@@ -456,7 +521,7 @@ class H(http.server.BaseHTTPRequestHandler):
             img_raw = q.get("img", "").strip()
             imgs = [x.strip() for x in img_raw.split(",") if x.strip()] if img_raw else []
             if t or imgs:
-                entry = {"ts": time.strftime("%H:%M:%S"),
+                entry = {"ts": time.strftime("%H:%M:%S"), "at": time.time(),
                          "text": t or ("📎 " + ", ".join(x.split("/")[-1] for x in imgs))}
                 if imgs:
                     entry["imgs"] = imgs
@@ -498,15 +563,36 @@ class H(http.server.BaseHTTPRequestHandler):
             self._s(200, json.dumps({"project": name,
                 "text": cf.read_text() if cf.exists() else ""}, ensure_ascii=False)); return
         if p == "/log":
-            items = []
+            # Reconstruct chronological order across midnight boundaries.
+            # Entries with `at` (epoch float) are sorted by it directly.
+            # Entries without `at` keep their file-append position as a tiebreaker.
+            all_entries = []
             for path, role in ((INBOX, "user"), (REPLY, "claude")):
-                if path.exists():
-                    for ln in path.read_text().splitlines():
-                        try:
-                            o = json.loads(ln); o.setdefault("role", role); items.append(o)
-                        except Exception: pass
-            items.sort(key=lambda x: x.get("ts", ""))
-            self._s(200, json.dumps(items[-40:], ensure_ascii=False)); return
+                if not path.exists(): continue
+                day_offset = 0.0
+                prev_sec = -1.0
+                for idx, ln in enumerate(path.read_text().splitlines()):
+                    try:
+                        o = json.loads(ln); o.setdefault("role", role)
+                        at = o.get("at")
+                        if at:
+                            sort_key = float(at)
+                        else:
+                            ts = o.get("ts", "00:00:00")
+                            try:
+                                h, m, s = (int(x) for x in ts.split(":"))
+                                sec = h * 3600 + m * 60 + s
+                            except Exception:
+                                sec = 0
+                            if sec < prev_sec - 3600:   # midnight crossed
+                                day_offset += 86400
+                            prev_sec = sec
+                            sort_key = day_offset + sec + idx * 0.001
+                        all_entries.append((sort_key, idx, o))
+                    except Exception: pass
+            all_entries.sort(key=lambda x: x[0])
+            items = [o for _, _, o in all_entries]
+            self._s(200, json.dumps(items[-60:], ensure_ascii=False)); return
         if p == "/trace":
             items = []
             tr = DATA / "trace.jsonl"
@@ -572,6 +658,20 @@ class H(http.server.BaseHTTPRequestHandler):
                     try: rows.append(json.loads(ln))
                     except Exception: pass
             self._s(200, json.dumps(rows, ensure_ascii=False)); return
+
+        if p == "/api/graph":
+            # LangGraph execution events — last N for visualization
+            gf = DATA / "graph_events.jsonl"
+            rows = []
+            if gf.exists():
+                for ln in gf.read_text().splitlines()[-120:]:
+                    try: rows.append(json.loads(ln))
+                    except Exception: pass
+            self._s(200, json.dumps(rows, ensure_ascii=False)); return
+
+        if p == "/api/graph/clear":
+            (DATA / "graph_events.jsonl").write_text("")
+            self._s(200, json.dumps({"ok": True})); return
 
         if p == "/critique":
             cr = DATA / "critique.md"
@@ -675,9 +775,38 @@ class H(http.server.BaseHTTPRequestHandler):
                 ext = target.suffix.lower()
                 ct = forced_ctype or MIME.get(ext, "application/octet-stream")
                 self._s(200, target.read_bytes(), ct); return
+
+        # ── LangGraph Orchestrator API ──
+        if HAS_ORCHESTRATION:
+            if p == "/orchestration.html":
+                self._s(200, ORCHESTRATION_HTML, "text/html; charset=utf-8"); return
+            
+            if p == "/api/orchestration/start":
+                try:
+                    result = handle_orchestration_start(q)
+                    self._s(200, json.dumps(result, ensure_ascii=False)); return
+                except Exception as e:
+                    self._s(500, json.dumps({"error": str(e)})); return
+            
+            if p == "/api/orchestration/graph":
+                try:
+                    result = handle_orchestration_graph(q)
+                    self._s(200, json.dumps(result, ensure_ascii=False)); return
+                except Exception as e:
+                    self._s(500, json.dumps({"error": str(e)})); return
+            
+            if p == "/api/orchestration/llm":
+                try:
+                    result = handle_orchestration_llm(q)
+                    self._s(200, json.dumps(result, ensure_ascii=False)); return
+                except Exception as e:
+                    self._s(500, json.dumps({"error": str(e)})); return
+
         self._s(404, "no")
 
     def do_POST(self):
+        if not self._guard():
+            return
         u = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
         if u.path == "/upload":

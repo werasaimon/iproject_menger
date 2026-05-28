@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LangGraph · агентный граф</title>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--fg:#e6edf3;--mut:#8b949e;--accent:#58a6ff}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif;overflow:hidden}
+#wrap{display:flex;height:100vh}
+
+/* sidebar */
+#side{width:260px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--panel)}
+#side-hdr{padding:10px 12px 8px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700}
+#side-hdr a{color:var(--mut);font-size:11px;text-decoration:none;margin-left:auto}
+#runs{flex:1;overflow-y:auto}
+.run-item{padding:7px 12px;border-bottom:1px solid #1c2330;cursor:pointer}
+.run-item:hover{background:#1c2330}
+.run-item.sel{background:#10243d;border-left:3px solid var(--accent)}
+.run-ts{font-size:10px;color:var(--mut);font-family:monospace}
+.run-msg{font-size:12px;margin:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.run-tags{display:flex;gap:3px;margin-top:2px;flex-wrap:wrap}
+.rtag{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600}
+.rtag-claude{background:#10243d;color:#58a6ff;border:1px solid #1f6feb}
+.rtag-codex{background:#1f1a0a;color:#e3b341;border:1px solid #9e6a03}
+.rtag-gemini{background:#1a1030;color:#bc8cff;border:1px solid #6e40c9}
+.rtag-H{background:#0d1117;color:#58a6ff;border:1px solid #30363d;font-family:monospace}
+
+/* main */
+#main{flex:1;display:flex;flex-direction:column;min-width:0}
+
+/* tabs */
+#tabs{display:flex;border-bottom:1px solid var(--line);background:var(--panel)}
+.tab{padding:8px 18px;font-size:12px;font-weight:600;cursor:pointer;color:var(--mut);border-bottom:2px solid transparent;transition:.15s}
+.tab:hover{color:var(--fg)}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+#toolbar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--panel);font-size:12px}
+#H-badge{font-family:monospace;color:#58a6ff;padding:2px 8px;background:#10243d;border-radius:8px}
+#step-badge{font-family:monospace;color:#e3b341;padding:2px 8px;background:#1f1a0a;border-radius:8px}
+#live-dot{width:7px;height:7px;border-radius:50%;background:#3fb950;animation:lp 1.8s ease-in-out infinite;margin-right:2px}
+@keyframes lp{0%,100%{opacity:1}50%{opacity:.3}}
+#btn-clear{margin-left:auto;font-size:11px;padding:3px 10px;background:#1f2630;border:1px solid var(--line);color:var(--mut);border-radius:12px;cursor:pointer}
+#btn-clear:hover{border-color:#f85149;color:#f85149}
+
+/* legend strip */
+#legend{display:none;align-items:center;gap:12px;padding:5px 12px;border-bottom:1px solid var(--line);background:var(--panel);font-size:11px;color:var(--mut)}
+#legend .leg{display:flex;align-items:center;gap:4px}
+#legend .dot{width:24px;height:3px;border-radius:2px}
+.dot-fwd{background:#30363d}
+.dot-back{background:#e3b341}
+.dot-loop{background:#f85149}
+.lbtn{background:#1f2630;border:1px solid #30363d;border-radius:8px;padding:2px 9px;
+  font-size:10px;color:#8b949e;cursor:pointer;transition:.12s}
+.lbtn:hover{border-color:#58a6ff;color:#58a6ff}
+.lbtn.on{border-color:#58a6ff;color:#58a6ff;background:#10243d;font-weight:700}
+.sec-hdr{padding:5px 12px 3px;font-size:10px;font-weight:700;letter-spacing:.06em;
+  color:#8b949e;text-transform:uppercase;border-top:1px solid #1c2330;margin-top:2px}
+.run-item.trace-item.sel{background:#1a1030;border-left:3px solid #bc8cff}
+.rtag-trace{background:#1a1030;color:#bc8cff;border:1px solid #6e40c9}
+.dot-fork{background:#bc8cff}
+
+/* graph views */
+#view-dispatch,#view-trace{flex:1;display:flex;flex-direction:column;min-height:0}
+#view-trace{display:none}
+#cy-dispatch,#cy-trace{flex:1;background:#080c12;min-height:0}
+
+/* tooltip */
+#tip{position:fixed;pointer-events:none;z-index:999;display:none;
+  background:#1c2330;border:1px solid #30363d;border-radius:8px;
+  padding:9px 13px;font-size:12px;max-width:300px;
+  box-shadow:0 4px 20px #00000088;line-height:1.6}
+#tip .tip-tool{font-weight:700;font-size:13px;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+#tip .tip-row{display:flex;gap:6px;color:var(--mut);font-size:11px}
+#tip .tip-row b{color:var(--fg)}
+#tip .tip-what{word-break:break-all;color:#79c0ff;font-family:monospace;font-size:11px;
+  margin-top:4px;padding:4px 6px;background:#0d1117;border-radius:4px;
+  max-height:80px;overflow:hidden;text-overflow:ellipsis}
+
+/* event log */
+#evlog{height:90px;border-top:1px solid var(--line);background:#080c12;overflow-y:auto;padding:3px 10px;font-family:monospace;font-size:11px;flex:none}
+#evlog2{height:80px;border-top:1px solid var(--line);background:#080c12;overflow-y:auto;padding:3px 10px;font-family:monospace;font-size:11px;flex:none}
+.ev{display:flex;gap:8px;padding:1px 0;border-bottom:1px solid #12181f}
+.ev-t{color:var(--mut);flex:none;width:50px}
+.ev-k{flex:none;width:100px}
+.ev-k.claude_tool{color:#e3b341}
+.ev-k.edge_activate{color:#58a6ff}
+.ev-k.node_enter{color:#3fb950}
+.ev-k.node_exit{color:var(--mut)}
+.ev-k.run_start,.ev-k.run_end{color:#3fb950;font-weight:700}
+.ev-b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+
+/* mobile (portrait): stack vertically — runs list on top, graph below.
+   Без цього на ~360px телефону sidebar 260px + main ~100px не вміщується. */
+@media (max-width: 768px){
+  html,body{overflow:auto}
+  #wrap{flex-direction:column;height:auto;min-height:100vh}
+  #side{width:100%;max-height:38vh;border-right:none;border-bottom:1px solid var(--line)}
+  #side-hdr{padding:8px 10px}
+  #runs{max-height:32vh}
+  #main{min-height:60vh}
+  #tip{max-width:90vw !important}
+}
+</style></head>
+<body>
+<div id="tip"></div>
+<div id="wrap">
+
+  <div id="side">
+    <div id="side-hdr">
+      🕸 История запусков
+      <a href="/">← назад</a>
+    </div>
+    <div id="runs"><div style="padding:14px;color:var(--mut);font-size:12px">ожидание…</div></div>
+  </div>
+
+  <div id="main">
+    <div id="tabs">
+      <div class="tab on" onclick="switchTab('dispatch')">🔀 Dispatch граф</div>
+      <div class="tab" onclick="switchTab('trace')">🧠 Claude шаги</div>
+    </div>
+    <div id="toolbar">
+      <span id="live-dot"></span>live
+      <span id="H-badge">H = —</span>
+      <span id="step-badge">0 шагов</span>
+      <button id="btn-clear" onclick="doClear()">✕ очистить</button>
+    </div>
+
+    <div id="view-dispatch">
+      <div id="cy-dispatch"></div>
+      <div id="evlog"></div>
+    </div>
+
+    <div id="view-trace">
+      <div id="legend">
+        <span class="leg"><span class="dot dot-fwd"></span>вперёд</span>
+        <span class="leg"><span class="dot dot-back"></span>цикл</span>
+        <span class="leg"><span class="dot dot-loop"></span>повтор</span>
+        <span style="color:var(--mut);margin-left:4px">· жирнее = чаще</span>
+        <span style="margin-left:auto;display:flex;gap:4px" id="layout-btns">
+          <button class="lbtn on" onclick="setLayout('cose')"    id="lb-cose">force</button>
+          <button class="lbtn"    onclick="setLayout('grid')"    id="lb-grid">grid</button>
+          <button class="lbtn"    onclick="setLayout('concentric')" id="lb-conc">ring</button>
+        </span>
+      </div>
+      <div id="cy-trace"></div>
+      <div id="evlog2"></div>
+    </div>
+  </div>
+
+</div>
+<script>
+// ── tabs ─────────────────────────────────────────────────────────────────────
+let _tab = "dispatch";
+function switchTab(t){
+  _tab = t;
+  document.querySelectorAll(".tab").forEach((el,i)=>el.classList.toggle("on",(i===0&&t==="dispatch")||(i===1&&t==="trace")));
+  document.getElementById("view-dispatch").style.display = t==="dispatch"?"flex":"none";
+  document.getElementById("view-trace").style.display    = t==="trace"?"flex":"none";
+  document.getElementById("legend").style.display        = t==="trace"?"flex":"none";
+  if(t==="trace" && cyTrace) setTimeout(()=>cyTrace.fit(cyTrace.elements(),30), 50);
+}
+
+// ── dispatch cytoscape ────────────────────────────────────────────────────────
+const NC={router:"#1f6feb",claude:"#238636",codex:"#9e6a03",gemini:"#6e40c9",aggregate:"#21262d"};
+const NL={router:"Router\n(H·attn)",claude:"Claude",codex:"Codex",gemini:"Gemini",aggregate:"∑"};
+
+const cy = cytoscape({
+  container: document.getElementById("cy-dispatch"),
+  style:[
+    {selector:"node",style:{
+      "background-color":n=>NC[n.id()]||"#333","label":n=>NL[n.id()]||n.id(),
+      "color":"#e6edf3","font-size":"11px","text-valign":"center","text-halign":"center",
+      "width":72,"height":36,"shape":"roundrectangle","border-width":2,"border-color":"#30363d",
+      "text-wrap":"wrap","text-max-width":"68",
+    }},
+    {selector:"node.active",style:{"border-color":"#58a6ff","border-width":3}},
+    {selector:"node.done",style:{"border-color":"#3fb950","border-width":2}},
+    {selector:"node.err",style:{"border-color":"#f85149","border-width":3}},
+    {selector:"edge",style:{
+      "width":2,"line-color":"#30363d","target-arrow-color":"#30363d",
+      "target-arrow-shape":"triangle","curve-style":"bezier","opacity":0.28,
+      "label":"","font-size":"10px","color":"#8b949e","text-rotation":"autorotate",
+      "text-background-color":"#0d1117","text-background-opacity":1,"text-background-padding":"2px",
+    }},
+    {selector:"edge.on",style:{"line-color":"#58a6ff","target-arrow-color":"#58a6ff","opacity":1,"width":3}},
+    {selector:"edge.hot",style:{"line-color":"#e3b341","target-arrow-color":"#e3b341"}},
+  ],
+  elements:[
+    {data:{id:"router"}},   {data:{id:"claude"}},
+    {data:{id:"codex"}},    {data:{id:"gemini"}},  {data:{id:"aggregate"}},
+    {data:{id:"r_cl",source:"router",target:"claude"}},
+    {data:{id:"r_co",source:"router",target:"codex"}},
+    {data:{id:"r_ge",source:"router",target:"gemini"}},
+    {data:{id:"cl_ag",source:"claude",target:"aggregate"}},
+    {data:{id:"co_ag",source:"codex",target:"aggregate"}},
+    {data:{id:"ge_ag",source:"gemini",target:"aggregate"}},
+  ],
+  layout:{name:"preset"},
+  userZoomingEnabled:true, userPanningEnabled:true,
+});
+cy.$("#router").position({x:120,y:180});
+cy.$("#claude").position({x:310,y:90});
+cy.$("#codex").position({x:310,y:180});
+cy.$("#gemini").position({x:310,y:270});
+cy.$("#aggregate").position({x:490,y:180});
+cy.fit(cy.elements(), 50);
+
+// dispatch graph tooltip (wired after attachTip is defined — deferred)
+setTimeout(()=>{
+  cy.on("mouseover","node",e=>{
+    const id=e.target.id();
+    const oe=e.originalEvent;
+    const labels={router:"Роутер — вычисляет H и attention_weights",
+      claude:"Claude Code — основной агент",
+      codex:"Codex exec — build/run/fix задачи",
+      gemini:"Gemini — research и explain",
+      aggregate:"Aggregate — оценка результатов, retry или done"};
+    showTip(oe.clientX,oe.clientY,
+      `<div class="tip-tool">🔵 ${NL[id]||id}</div>`+
+      `<div class="tip-row">${labels[id]||""}</div>`);
+  });
+  cy.on("mousemove","node",e=>{
+    const oe=e.originalEvent;
+    const W=window.innerWidth,H=window.innerHeight;
+    const tw=tip.offsetWidth+12,th=tip.offsetHeight+12;
+    tip.style.left=(oe.clientX+tw>W?oe.clientX-tw:oe.clientX+12)+"px";
+    tip.style.top =(oe.clientY+th>H?oe.clientY-th:oe.clientY+12)+"px";
+  });
+  cy.on("mouseout","node",()=>hideTip());
+  cy.on("mouseover","edge",e=>{
+    const d=e.target.data();
+    const oe=e.originalEvent;
+    const lbl=e.target.style("label")||"";
+    showTip(oe.clientX,oe.clientY,
+      `<div class="tip-tool">→ ребро</div>`+
+      `<div class="tip-row">вес: <b>${lbl||"—"}</b></div>`);
+  });
+  cy.on("mousemove","edge",e=>{
+    const oe=e.originalEvent;
+    const W=window.innerWidth,H=window.innerHeight;
+    const tw=tip.offsetWidth+12,th=tip.offsetHeight+12;
+    tip.style.left=(oe.clientX+tw>W?oe.clientX-tw:oe.clientX+12)+"px";
+    tip.style.top =(oe.clientY+th>H?oe.clientY-th:oe.clientY+12)+"px";
+  });
+  cy.on("mouseout","edge",()=>hideTip());
+},0);
+
+const EMAP={router_claude:"r_cl",router_codex:"r_co",router_gemini:"r_ge",
+            claude_aggregate:"cl_ag",codex_aggregate:"co_ag",gemini_aggregate:"ge_ag"};
+
+function resetDispatch(){ cy.elements().removeClass("active done err on hot"); cy.edges().removeStyle("label width"); }
+
+function applyRun(evts){
+  resetDispatch();
+  let H=null;
+  for(const e of evts){
+    if(e.event==="node_enter"&&e.node==="router"){ H=e.H; cy.$("#router").addClass("active"); }
+    if(e.event==="edge_activate"){
+      const eid=EMAP[e.src+"_"+e.dst]; if(!eid) continue;
+      cy.$("#"+eid).addClass("on"); if(e.weight>=0.8) cy.$("#"+eid).addClass("hot");
+      cy.$("#"+eid).style("label",Math.round(e.weight*100)+"%");
+      cy.$("#"+eid).style("width",2+e.weight*4);
+    }
+    if(e.event==="node_enter"&&e.node!=="router") cy.$("#"+e.node).addClass("active");
+    if(e.event==="node_exit") cy.$("#"+e.node).removeClass("active").addClass(e.ok===false?"err":"done");
+  }
+  if(H!=null) document.getElementById("H-badge").textContent="H="+H.toFixed(2)+" бит";
+}
+
+// ── claude trace — REAL GRAPH ─────────────────────────────────────────────────
+const TCOL={
+  Bash:"#b5860d",Read:"#1f6feb",Edit:"#1a4d2e",Write:"#1a4d2e",
+  Agent:"#4d2080",Grep:"#1a3a5e",Glob:"#1a3a5e",
+  WebFetch:"#7d1a1a",WebSearch:"#7d1a1a",Task:"#2d4d1a",
+};
+const TBORDER={
+  Bash:"#e3b341",Read:"#58a6ff",Edit:"#3fb950",Write:"#3fb950",
+  Agent:"#bc8cff",Grep:"#79c0ff",Glob:"#79c0ff",
+  WebFetch:"#ff7b72",WebSearch:"#ff7b72",Task:"#7ee787",
+};
+const TOOL_ICON={Bash:"⚡",Read:"📖",Edit:"✏️",Write:"📝",Agent:"🤖",
+                 Grep:"🔎",Glob:"🗂",WebFetch:"🌐",WebSearch:"🔍",Task:"📋"};
+
+let cyTrace = null;
+let _layout = "cose";
+
+function setLayout(name){
+  _layout = name;
+  document.querySelectorAll(".lbtn").forEach(b=>b.classList.remove("on"));
+  const map={cose:"lb-cose",grid:"lb-grid",concentric:"lb-conc"};
+  const el=document.getElementById(map[name]);
+  if(el) el.classList.add("on");
+  if(!cyTrace) return;
+  const lay = buildLayout(name, cyTrace.nodes().length);
+  cyTrace.layout(lay).run();
+  setTimeout(()=>cyTrace.fit(cyTrace.elements(),24),600);
+}
+
+function buildLayout(name, nodeCount){
+  if(name==="grid") return {name:"grid",fit:true,padding:24,avoidOverlap:true,condense:nodeCount>40};
+  if(name==="concentric") return {name:"concentric",fit:true,padding:24,
+    concentric:n=>n.data("count")||1, levelWidth:()=>2, minNodeSpacing:30};
+  // cose (default) — force-directed 2D
+  return {
+    name:"cose", animate:false, fit:true, padding:24,
+    nodeOverlap:12,
+    idealEdgeLength:()=>90,
+    nodeRepulsion:()=>Math.max(4000, nodeCount*200),
+    edgeElasticity:()=>100,
+    gravity:0.8,
+    numIter:1800,
+    initialTemp:500,
+    coolingFactor:0.995,
+    minTemp:1.0,
+    randomize:false,
+  };
+}
+
+function renderTrace(evts){
+  const steps = evts.filter(e=>e.event==="claude_tool");
+  document.getElementById("step-badge").textContent = steps.length+" шагов";
+
+  // evlog2
+  const log2=document.getElementById("evlog2");
+  log2.innerHTML=steps.slice(-20).map(s=>
+    `<div class="ev"><span class="ev-t">${s.t||""}</span>`+
+    `<span class="ev-k claude_tool">${s.icon||"🔧"} ${s.tool}</span>`+
+    `<span class="ev-b">${(s.what||"").replace(/</g,"&lt;")}</span></div>`
+  ).join("");
+  log2.scrollTop=log2.scrollHeight;
+
+  const container=document.getElementById("cy-trace");
+
+  if(!steps.length){
+    if(cyTrace){cyTrace.destroy();cyTrace=null;}
+    container.innerHTML='<div style="color:var(--mut);font-size:12px;padding:20px">'+
+      'шагов ещё нет — после /restart с хуками граф появится здесь</div>';
+    return;
+  }
+
+  // ── Build node map: key → node descriptor ──────────────────────────────────
+  const nodeMap=new Map(); // key→{id,tool,what,icon,count,firstIdx}
+  const keyList=[];
+
+  for(let i=0;i<steps.length;i++){
+    const s=steps[i];
+    const key=`${s.tool}:${(s.what||"").trim().slice(0,40)}`;
+    keyList.push(key);
+    if(!nodeMap.has(key)){
+      nodeMap.set(key,{
+        id:"n"+nodeMap.size,
+        tool:s.tool,
+        what:s.what||"",
+        icon:TOOL_ICON[s.tool]||s.icon||"🔧",
+        count:0,
+        firstIdx:i,
+      });
+    }
+    nodeMap.get(key).count++;
+  }
+
+  // ── Build edge map ─────────────────────────────────────────────────────────
+  // isBack  = dst was first seen BEFORE src in the call sequence → loop back
+  // isLoop  = self-loop (same node repeating consecutively)
+  // isFork  = source has multiple distinct targets (marked after)
+  const edgeMap=new Map(); // "srcId→dstId"→{source,target,count,isBack,isLoop}
+
+  for(let i=0;i<steps.length-1;i++){
+    const srcN=nodeMap.get(keyList[i]);
+    const dstN=nodeMap.get(keyList[i+1]);
+    const selfLoop=(srcN.id===dstN.id);
+    const back=!selfLoop&&(dstN.firstIdx<srcN.firstIdx);
+    const ek=srcN.id+"→"+dstN.id;
+    if(!edgeMap.has(ek)){
+      edgeMap.set(ek,{source:srcN.id,target:dstN.id,count:0,isBack:back,isLoop:selfLoop});
+    }
+    edgeMap.get(ek).count++;
+  }
+
+  // Mark fork nodes: source with ≥2 distinct forward targets
+  const srcTargets=new Map(); // srcId → Set of dstIds (fwd only)
+  for(const e of edgeMap.values()){
+    if(e.isLoop||e.isBack) continue;
+    if(!srcTargets.has(e.source)) srcTargets.set(e.source,new Set());
+    srcTargets.get(e.source).add(e.target);
+  }
+  const forkNodes=new Set();
+  for(const [src,dsts] of srcTargets) if(dsts.size>=2) forkNodes.add(src);
+
+  // ── Cytoscape elements ─────────────────────────────────────────────────────
+  const nodes=Array.from(nodeMap.values()).map(n=>{
+    const cnt=n.count>1?" ×"+n.count:"";
+    const what=(n.what||"").slice(0,18);
+    return {data:{
+      id:n.id,
+      label:`${n.icon} ${n.tool}\n${what}${cnt}`,
+      tool:n.tool,count:n.count,
+      bg:TCOL[n.tool]||"#21262d",
+      border:TBORDER[n.tool]||"#8b949e",
+    },classes:forkNodes.has(n.id)?"fork-node":""};
+  });
+
+  let ei=0;
+  const edges=Array.from(edgeMap.values()).map(e=>({
+    data:{
+      id:"e"+(ei++),
+      source:e.source,target:e.target,
+      count:e.count,
+      w:Math.min(1+e.count,5),
+    },
+    classes:e.isLoop?"loop-edge":e.isBack?"back-edge":"fwd-edge",
+  }));
+
+  // Destroy old instance, rebuild
+  if(cyTrace){cyTrace.destroy();cyTrace=null;}
+  container.innerHTML="";
+
+  cyTrace=cytoscape({
+    container,
+    elements:[...nodes,...edges],
+    style:[
+      {selector:"node",style:{
+        "background-color":"data(bg)",
+        "border-color":"data(border)",
+        "label":"data(label)",
+        "color":"#e6edf3","font-size":"10px",
+        "text-valign":"center","text-halign":"center",
+        "width":84,"height":40,
+        "shape":"roundrectangle",
+        "border-width":2,
+        "text-wrap":"wrap","text-max-width":"80",
+      }},
+      // Fork node = thicker purple border
+      {selector:"node.fork-node",style:{
+        "border-color":"#bc8cff","border-width":3,
+        "border-style":"dashed",
+      }},
+      // Forward edges — grey/white
+      {selector:"edge.fwd-edge",style:{
+        "width":"data(w)",
+        "line-color":"#484f58",
+        "target-arrow-color":"#484f58",
+        "target-arrow-shape":"triangle",
+        "curve-style":"bezier",
+        "opacity":0.85,
+      }},
+      // Back-edges — orange dashed (loop return)
+      {selector:"edge.back-edge",style:{
+        "width":2,
+        "line-color":"#e3b341",
+        "target-arrow-color":"#e3b341",
+        "target-arrow-shape":"triangle",
+        "curve-style":"bezier",
+        "line-style":"dashed",
+        "line-dash-pattern":[7,4],
+        "opacity":1,
+        "control-point-step-size":60,
+      }},
+      // Self-loop — red
+      {selector:"edge.loop-edge",style:{
+        "width":2,
+        "line-color":"#f85149",
+        "target-arrow-color":"#f85149",
+        "target-arrow-shape":"triangle",
+        "curve-style":"loop",
+        "loop-direction":"-45deg",
+        "loop-sweep":"45deg",
+        "opacity":0.95,
+      }},
+    ],
+    layout: buildLayout(_layout, nodes.length),
+    userZoomingEnabled:true,
+    userPanningEnabled:true,
+  });
+
+  cyTrace.fit(cyTrace.elements(),24);
+
+  attachTip(cyTrace);
+}
+
+// ── universal tooltip for any cytoscape instance ──────────────────────────────
+const tip=document.getElementById("tip");
+
+function showTip(x,y,html){
+  tip.innerHTML=html; tip.style.display="block";
+  const W=window.innerWidth, H=window.innerHeight;
+  const tw=tip.offsetWidth+12, th=tip.offsetHeight+12;
+  tip.style.left=(x+tw>W ? x-tw : x+12)+"px";
+  tip.style.top =(y+th>H ? y-th : y+12)+"px";
+}
+function hideTip(){ tip.style.display="none"; }
+
+function attachTip(cytoscapeInstance){
+  const c=cytoscapeInstance;
+
+  c.on("mouseover","node",e=>{
+    const nd=e.target.data();
+    const oe=e.originalEvent;
+    const edgesOut=c.edges(`[source="${nd.id}"]`).length;
+    const edgesIn =c.edges(`[target="${nd.id}"]`).length;
+    const fwd =c.edges(`.fwd-edge[source="${nd.id}"]`).length;
+    const back=c.edges(`.back-edge[source="${nd.id}"]`).length;
+    const loopE=c.edges(`.loop-edge[source="${nd.id}"]`).length;
+    const isFork=fwd>=2;
+    const icon=nd.label?nd.label.split("\n")[0].trim():"🔧";
+    const tool=nd.tool||nd.id;
+    const what=nd.what||"";
+    const cnt=nd.count||1;
+
+    let extra="";
+    if(isFork)   extra+=`<span style="color:#bc8cff">⑂ развилка (${fwd} путей)</span> `;
+    if(back>0)   extra+=`<span style="color:#e3b341">↩ цикл×${back}</span> `;
+    if(loopE>0)  extra+=`<span style="color:#f85149">⟳ повтор×${loopE}</span> `;
+
+    showTip(oe.clientX,oe.clientY,
+      `<div class="tip-tool">${icon} ${tool}${extra?`<span style="font-size:11px;margin-left:4px">${extra}</span>`:""}</div>`+
+      (what?`<div class="tip-what">${what.replace(/</g,"&lt;")}</div>`:"")+
+      `<div class="tip-row">вызовов: <b>${cnt}</b> &nbsp;·&nbsp; входящих: <b>${edgesIn}</b> &nbsp;·&nbsp; исходящих: <b>${edgesOut}</b></div>`
+    );
+  });
+
+  c.on("mousemove","node",e=>{
+    const oe=e.originalEvent;
+    const W=window.innerWidth,H=window.innerHeight;
+    const tw=tip.offsetWidth+12,th=tip.offsetHeight+12;
+    tip.style.left=(oe.clientX+tw>W?oe.clientX-tw:oe.clientX+12)+"px";
+    tip.style.top =(oe.clientY+th>H?oe.clientY-th:oe.clientY+12)+"px";
+  });
+
+  c.on("mouseout","node",()=>hideTip());
+  c.on("tap","node",()=>hideTip());
+}
+
+// ── runs parsing ──────────────────────────────────────────────────────────────
+function parseRuns(evts){
+  const res=[]; let cur=null;
+  for(const e of evts){
+    if(e.event==="run_start"){cur={ts:e.t,msg:e.message,agents:[],H:null,evts:[e]};}
+    else if(cur){
+      cur.evts.push(e);
+      if(e.event==="node_enter"&&e.node==="router") cur.H=e.H;
+      if(e.event==="node_enter"&&["claude","codex","gemini"].includes(e.node)&&!cur.agents.includes(e.node))
+        cur.agents.push(e.node);
+      if(e.event==="run_end"){res.push(cur);cur=null;}
+    }
+  }
+  if(cur&&cur.evts.length>1) res.push(cur);
+  return res;
+}
+
+let allEvts=[], runs=[], selIdx=-1;
+let traceSessions=[], selTraceIdx=-1;
+
+// Groups claude_tool events into sessions by time gap (>120s = new session)
+function parseTraceSessions(evts){
+  const steps=evts.filter(e=>e.event==="claude_tool");
+  if(!steps.length) return [];
+  const GAP=120;
+  const sessions=[]; let cur=null;
+  for(const s of steps){
+    if(!cur || s.ts-cur.lastTs>GAP){
+      if(cur) sessions.push(cur);
+      cur={ts:s.t,rawTs:s.ts,lastTs:s.ts,evts:[],tools:{}};
+    }
+    cur.evts.push(s);
+    cur.lastTs=s.ts;
+    cur.tools[s.tool]=(cur.tools[s.tool]||0)+1;
+  }
+  if(cur) sessions.push(cur);
+  return sessions;
+}
+
+function renderSidebar(){
+  const el=document.getElementById("runs");
+  let html="";
+
+  // Dispatch запуски
+  if(runs.length){
+    html+=`<div class="sec-hdr">Dispatch</div>`;
+    html+=[...runs].reverse().map((r,i)=>{
+      const ri=runs.length-1-i;
+      const tags=r.agents.map(a=>`<span class="rtag rtag-${a}">${a}</span>`).join("");
+      const Ht=r.H!=null?`<span class="rtag rtag-H">H=${r.H.toFixed(2)}</span>`:"";
+      return `<div class="run-item${ri===selIdx?" sel":""}" onclick="selRun(${ri})">
+        <div class="run-ts">${r.ts||""}</div>
+        <div class="run-msg">${(r.msg||"").replace(/</g,"&lt;")}</div>
+        <div class="run-tags">${tags}${Ht}</div>
+      </div>`;
+    }).join("");
+  }
+
+  // Claude сессии
+  if(traceSessions.length){
+    html+=`<div class="sec-hdr">Claude шаги</div>`;
+    html+=[...traceSessions].reverse().map((s,i)=>{
+      const si=traceSessions.length-1-i;
+      const topTools=Object.entries(s.tools).sort((a,b)=>b[1]-a[1]).slice(0,3)
+        .map(([t,c])=>`<span class="rtag rtag-trace">${TOOL_ICON[t]||"🔧"}${t} ×${c}</span>`).join("");
+      const total=s.evts.length;
+      return `<div class="run-item trace-item${si===selTraceIdx?" sel":""}" onclick="selTrace(${si})">
+        <div class="run-ts">${s.ts||""}</div>
+        <div class="run-msg">${total} вызов${total===1?"":"ов"}</div>
+        <div class="run-tags">${topTools}</div>
+      </div>`;
+    }).join("");
+  }
+
+  if(!html) html='<div style="padding:14px;color:var(--mut);font-size:12px">пока пусто — шаги появятся после первого сообщения</div>';
+  el.innerHTML=html;
+}
+
+function selRun(idx){
+  selIdx=idx; selTraceIdx=-1; renderSidebar();
+  switchTab("dispatch");
+  applyRun(runs[idx].evts);
+}
+
+function selTrace(idx){
+  selTraceIdx=idx; selIdx=-1; renderSidebar();
+  switchTab("trace");
+  renderTrace(traceSessions[idx].evts);
+}
+
+function renderEvLog(evts){
+  const el=document.getElementById("evlog");
+  el.innerHTML=evts.slice(-25).map(e=>{
+    let b="";
+    if(e.event==="run_start") b=`"${(e.message||"").slice(0,55).replace(/</g,"&lt;")}"`;
+    else if(e.event==="node_enter"&&e.node==="router") b=`H=${e.H}  attn=${JSON.stringify(e.attention||{})}`;
+    else if(e.event==="edge_activate") b=`${e.src}→${e.dst}  w=${e.weight}`;
+    else if(e.event==="node_enter") b=e.node;
+    else if(e.event==="node_exit") b=`${e.node} ok=${e.ok}${e.reason?" "+e.reason:""}${e.chars?" "+e.chars+"ch":""}`;
+    else if(e.event==="claude_tool") b=`${e.icon||"🔧"} ${e.tool}  ${(e.what||"").replace(/</g,"&lt;")}`;
+    else if(e.event==="run_end") b=`→[${(e.active||[]).join(",")}]`;
+    return `<div class="ev"><span class="ev-t">${e.t||""}</span><span class="ev-k ${e.event}">${e.event}</span><span class="ev-b">${b}</span></div>`;
+  }).join("");
+  el.scrollTop=el.scrollHeight;
+}
+
+// ── poll ──────────────────────────────────────────────────────────────────────
+let lastTs=0;
+async function poll(){
+  try{
+    const evts=await(await fetch("/api/graph",{cache:"no-store"})).json();
+    const latest=evts.length?evts[evts.length-1].ts:0;
+    if(latest===lastTs) return;
+    lastTs=latest; allEvts=evts;
+    runs=parseRuns(evts);
+    traceSessions=parseTraceSessions(evts);
+    renderSidebar();
+    renderEvLog(evts);
+    // Show latest trace session by default; full evts if no sessions
+    const traceEvts=selTraceIdx>=0 ? traceSessions[selTraceIdx].evts
+                   : traceSessions.length ? traceSessions[traceSessions.length-1].evts
+                   : evts;
+    renderTrace(traceEvts);
+    if(traceSessions.length && selTraceIdx===-1) selTraceIdx=traceSessions.length-1;
+    if(runs.length&&selIdx!==runs.length-1){
+      selIdx=runs.length-1; applyRun(runs[selIdx].evts);
+    } else if(runs.length&&selIdx>=0){
+      applyRun(runs[selIdx].evts);
+    }
+  }catch(e){}
+}
+
+async function doClear(){
+  await fetch("/api/graph/clear");
+  allEvts=[]; runs=[]; selIdx=-1;
+  cy.elements().removeClass("active done err on hot"); cy.edges().removeStyle("label width");
+  if(cyTrace){cyTrace.destroy();cyTrace=null;}
+  document.getElementById("cy-trace").innerHTML="";
+  renderSidebar(); renderEvLog([]); renderTrace([]);
+  document.getElementById("H-badge").textContent="H = —";
+  document.getElementById("step-badge").textContent="0 шагов";
+}
+
+poll(); setInterval(poll,1200);
+</script>
+</body></html>

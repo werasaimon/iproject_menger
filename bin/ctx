@@ -15,14 +15,12 @@ D.joinpath("ctx").mkdir(exist_ok=True)
 ALIASES = {
     "istereolab-sdk":       "is",
     "depz-toolkit":         "dt",
-    "depz-camera-sdk":      "dc",
     "ifirmware-stereocam":  "fw",
     "iproject_menger":      "ip",
 }
 PROJECTS = {
     "istereolab-sdk":       pathlib.Path("/home/wera_n/GIT/istereolab-sdk"),
     "depz-toolkit":         pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
-    "depz-camera-sdk":      pathlib.Path("/home/wera_n/GIT/depz-camera-sdk"),
     "ifirmware-stereocam":  pathlib.Path("/home/wera_n/GIT/ifirmware-stereocam"),
     "iproject_menger":      pathlib.Path("/home/wera_n/GIT/iproject_menger"),
 }

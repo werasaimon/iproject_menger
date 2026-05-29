@@ -1,13 +1,185 @@
 #!/usr/bin/env bash
 # Post a Claude reply into the pair-chat (and turn the "thinking" blinker off).
+# v4: also computes Shannon weight of the edge to the previous judgment in
+# the same brain (jaccard tokens overlap → -log2(jaccard + ε) bits).
 # Usage: bin/say "text"
 python3 - "$*" <<'PY'
-import json, time, sys, pathlib
+import json, time, sys, pathlib, hashlib, collections, math, re
+
 D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+text = sys.argv[1] if len(sys.argv) > 1 else ""
+now  = time.time()
+hh   = time.strftime("%H:%M:%S")
+
+# 1) visible reply
 D.joinpath("replies.jsonl").open("a").write(
-    json.dumps({"ts": time.strftime("%H:%M:%S"), "at": time.time(),
-                "role": "claude", "text": sys.argv[1]},
+    json.dumps({"ts": hh, "at": now, "role": "claude", "text": text},
                ensure_ascii=False) + "\n")
-D.joinpath("status.json").write_text(json.dumps({"busy": False, "text": "", "at": time.time()}))
-print("ok")
+D.joinpath("status.json").write_text(
+    json.dumps({"busy": False, "text": "", "at": now}))
+
+# 2) close pending dispatch span
+pending_path = D / "pending_claude.json"
+run_id = None; dispatch_iter = None; dt_ms = None
+window_start = 0.0
+if pending_path.exists():
+    try:
+        p = json.loads(pending_path.read_text())
+        run_id = p.get("run_id")
+        dispatch_iter = p.get("iteration")
+        enter_at = p.get("enter_at") or now
+        window_start = enter_at
+        dt_ms = int((now - enter_at) * 1000)
+        D.joinpath("graph_events.jsonl").open("a").write(json.dumps({
+            "ts": now, "t": hh, "event": "node_exit",
+            "node": "claude", "ok": True, "chars": len(text),
+            "iteration": dispatch_iter, "run_id": run_id, "dt_ms": dt_ms,
+        }, ensure_ascii=False) + "\n")
+    except Exception: pass
+    try: pending_path.unlink()
+    except Exception: pass
+
+# 3) find previous judgment of the active project
+ap_file = D / "active_project"
+project = ap_file.read_text().strip() if ap_file.exists() else ""
+prev_judgment = None
+brain_file = None
+prev_at = window_start
+if project:
+    brain_file = D / "brain" / project / "main.jsonl"
+    if brain_file.exists():
+        try:
+            for line in brain_file.read_text().splitlines()[::-1]:
+                if not line.strip(): continue
+                try:
+                    j = json.loads(line)
+                    if j.get("kind") == "judgment":
+                        prev_judgment = j
+                        prev_at = max(prev_at, float(j.get("at") or 0))
+                        break
+                except Exception: continue
+        except Exception: pass
+
+# 4) Shannon weight of edge to prev judgment (token jaccard)
+TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яёЁ_]{2,}")
+def tokens(s):
+    return set(t.lower() for t in TOKEN_RE.findall(s or ""))
+edge = None
+if prev_judgment:
+    a = tokens(prev_judgment.get("statement") or "")
+    b = tokens(text)
+    union = a | b
+    if union:
+        jaccard = len(a & b) / len(union)
+    else:
+        jaccard = 0.0
+    eps = 0.001
+    shannon_bits = -math.log2(jaccard + eps)
+    if jaccard > 0.6:    rel = "refines"
+    elif jaccard > 0.2:  rel = "builds_on"
+    elif jaccard > 0.05: rel = "switch_topic"
+    else:                rel = "new_thread"
+    edge = {
+        "to_prev": prev_judgment.get("id"),
+        "jaccard": round(jaccard, 3),
+        "shannon_bits": round(shannon_bits, 2),
+        "rel": rel,
+        "dt_s": round(now - (prev_judgment.get("at") or now), 1),
+    }
+
+# 5) attribution (cities + subprojects) over the tool_use window
+events_file = D / "graph_events.jsonl"
+cities = collections.Counter()
+subs   = collections.defaultdict(collections.Counter)
+if events_file.exists():
+    try:
+        for line in events_file.read_text().splitlines()[-1500:]:
+            try: e = json.loads(line)
+            except Exception: continue
+            if e.get("event") not in ("tool_use", "claude_tool"): continue
+            ts = e.get("ts") or 0
+            if ts <= prev_at or ts > now: continue
+            proj = e.get("project")
+            if not proj: continue
+            cities[proj] += 1
+            fil = e.get("file") or ""
+            top = fil.split("/",1)[0] if "/" in fil else fil
+            if top: subs[proj][top] += 1
+    except Exception: pass
+cities_list = [c for c,_ in cities.most_common(5)]
+subprojects = {c: [s for s,_ in subs[c].most_common(5)] for c in cities_list}
+
+# 6) judgment event
+preview = text.replace("\n", " ").strip()[:160]
+jid     = hashlib.sha1(f"{now}:{preview}".encode()).hexdigest()[:12]
+ev = {"ts": now, "t": hh, "event": "judgment",
+      "id": jid, "project": project,
+      "cities": cities_list, "subprojects": subprojects,
+      "text": preview, "len": len(text)}
+if run_id:
+    ev["run_id"] = run_id; ev["from"] = "dispatch:claude"; ev["dt_ms"] = dt_ms
+if edge: ev["edge_to_prev"] = edge
+events_file.open("a").write(json.dumps(ev, ensure_ascii=False) + "\n")
+
+# 7) brain node
+if brain_file:
+    brain_file.parent.mkdir(parents=True, exist_ok=True)
+    node = {"id": jid, "kind": "judgment", "about": project,
+            "cities": cities_list, "subprojects": subprojects,
+            "statement": preview, "value": None, "confidence": 1.0,
+            "evidence": [], "run_id": run_id, "ts": hh, "at": now}
+    if edge: node["edge_to_prev"] = edge
+    brain_file.open("a").write(json.dumps(node, ensure_ascii=False) + "\n")
+
+# 7b) unified relations.jsonl edge (Claude side, mirroring Codex/Gemini)
+relations_path = D / "relations.jsonl"
+if edge and edge.get("to_prev"):
+    rel_rec = {
+        "ts": hh, "at": now,
+        "from_kind": "judgment", "from_id": jid,
+        "to_kind":   "judgment", "to_id":   edge["to_prev"],
+        "rel": edge["rel"], "weight": float(edge["shannon_bits"]),
+        "source": "claude", "project": project,
+    }
+    try: relations_path.open("a").write(json.dumps(rel_rec, ensure_ascii=False)+"\n")
+    except Exception: pass
+
+# 7c) autodetect mentions of files/dirs in the judgment text → mentions edges
+import re as _re
+_MENTION_RE = _re.compile(r"(?:bin|data|graphs|src|include|examples|python|resources)/[\w./_-]+|"
+                          r"\b[\w_-]+\.(?:py|html|cpp|h|hpp|md|jsonl|json|sh|yml|toml)\b")
+_seen = set()
+for _m in _MENTION_RE.findall(text or ""):
+    _m = _m.strip().rstrip(".,:;)")
+    if not _m or _m in _seen: continue
+    _seen.add(_m)
+    try:
+        relations_path.open("a").write(json.dumps({
+            "ts": hh, "at": now,
+            "from_kind": "judgment", "from_id": jid,
+            "to_kind":   "file",     "to_id":   _m,
+            "rel": "mentions", "weight": 1.0,
+            "source": "claude", "project": project,
+        }, ensure_ascii=False) + "\n")
+    except Exception: pass
+
+# 7d) embed judgment via daemon (fire-and-forget, silent on failure)
+if project and text.strip():
+    try:
+        import urllib.request as _ur, base64 as _b64, struct as _st
+        _req = _ur.Request("http://127.0.0.1:8079/embed",
+            data=text.encode("utf-8"), method="POST",
+            headers={"Content-Type": "text/plain; charset=utf-8"})
+        with _ur.urlopen(_req, timeout=3) as _r:
+            _vec = json.loads(_r.read())["vector"]
+        _raw = b"".join(_st.pack("<f", v) for v in _vec)
+        _b64s = _b64.b64encode(_raw).decode("ascii")
+        _odir = D / "embeddings"; _odir.mkdir(parents=True, exist_ok=True)
+        (_odir / f"{project}.jsonl").open("a").write(json.dumps({
+            "id": jid, "at": now, "vec_b64": _b64s
+        }, ensure_ascii=False) + "\n")
+    except Exception: pass
+
+extra = f"edge={edge['rel']}({edge['shannon_bits']}b j={edge['jaccard']})" if edge else ""
+print(f"ok {jid} cities={cities_list} {extra}")
 PY

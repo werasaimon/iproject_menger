@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Start visible agent terminals. Server remains the shared memory/message bus.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+MODE="$DIR/data/dispatch_mode"
+mkdir -p "$DIR/data/agent_queues"
+echo terminal > "$MODE"
+
+SESSION="${1:-iproject-agents}"
+AGENTS=(claude codex gemini openai)
+
+if command -v tmux >/dev/null 2>&1; then
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+  tmux new-session -d -s "$SESSION" -n agents "cd '$DIR' && python3 bin/agent_worker.py claude"
+  tmux split-window -t "$SESSION":0 -h "cd '$DIR' && python3 bin/agent_worker.py codex"
+  tmux split-window -t "$SESSION":0 -v "cd '$DIR' && python3 bin/agent_worker.py gemini"
+  tmux select-pane -t "$SESSION":0.0
+  tmux split-window -t "$SESSION":0 -v "cd '$DIR' && python3 bin/agent_worker.py openai"
+  tmux select-layout -t "$SESSION":0 tiled
+  if [ -n "${DISPLAY:-}" ] && command -v gnome-terminal >/dev/null 2>&1; then
+    gnome-terminal --title="iProject agents" -- bash -lc "tmux attach -t '$SESSION'; exec bash" >/dev/null 2>&1 &
+    echo "visible agents opened in gnome-terminal/tmux session: $SESSION"
+  else
+    echo "visible agents running in tmux session: $SESSION"
+    echo "attach: tmux attach -t $SESSION"
+  fi
+else
+  if ! command -v gnome-terminal >/dev/null 2>&1; then
+    echo "need tmux or gnome-terminal" >&2
+    exit 1
+  fi
+  for a in "${AGENTS[@]}"; do
+    gnome-terminal --title="agent:$a" -- bash -lc "cd '$DIR' && python3 bin/agent_worker.py '$a'; exec bash" >/dev/null 2>&1 &
+  done
+  echo "visible agents opened in separate gnome-terminal windows"
+fi
+
+echo "dispatch mode: terminal"

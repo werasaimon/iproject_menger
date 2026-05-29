@@ -40,13 +40,108 @@ INBOX  = DATA / "inbox.jsonl"
 NEW    = DATA / "inbox_new"
 REPLY  = DATA / "replies.jsonl"
 STATUS = DATA / "status.json"
+SHARED_CONTEXT = DATA / "shared_context.md"
+DIRECT_DISPATCH = DATA / "server_dispatch_enabled"
+DISPATCH_MODE = DATA / "dispatch_mode"
+AGENT_QUEUES = DATA / "agent_queues"
 SESSIONS = pathlib.Path.home() / ".claude" / "projects" / "-home-wera-n-GIT-iproject-menger"
 PORT   = 8078
+try:
+    DIRECT_DISPATCH.write_text("1")
+except Exception:
+    pass
 
 def set_status(busy, text=""):
     """Live 'Claude is thinking' signal the browser polls. at=epoch for elapsed timer."""
     try:
         STATUS.write_text(json.dumps({"busy": bool(busy), "text": text, "at": time.time()}))
+    except Exception:
+        pass
+
+def receive_site_message(text="", imgs=None, source="site"):
+    """Append a browser/site message to the pair-chat inbox and wake the watcher."""
+    text = (text or "").strip()
+    imgs = [str(x).strip() for x in (imgs or []) if str(x).strip()]
+    if not text and not imgs:
+        return False
+
+    entry = {"ts": time.strftime("%H:%M:%S"), "at": time.time(),
+             "text": text or ("📎 " + ", ".join(x.split("/")[-1] for x in imgs))}
+    if source:
+        entry["source"] = source
+    if imgs:
+        entry["imgs"] = imgs
+        if len(imgs) == 1:
+            entry["img"] = imgs[0]   # backward compat for single-img log renderer
+    with INBOX.open("a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    files_str = " ".join("[file: " + str(BASE / x) + "]" for x in imgs)
+    inbox_text = (text + " " + files_str).strip() if text else files_str
+    NEW.write_text(inbox_text or text)
+
+    if text:
+        m = re.match(r"^\[([^\]]+)\]", text)   # [project] prefix → active project
+        if m:
+            (DATA / "active_project").write_text(m.group(1).strip())
+    set_status(True, "получил сообщение, думаю…")
+    try:
+        (DATA / "choices.json").unlink()   # a message resolves any pending choice
+    except FileNotFoundError:
+        pass
+    dispatch_message(inbox_text or text)
+    return True
+
+def dispatch_message(message):
+    """Server-owned dispatch path: no external Codex/Claude session required."""
+    message = (message or "").strip()
+    if not message:
+        return
+    mode = DISPATCH_MODE.read_text().strip() if DISPATCH_MODE.exists() else "background"
+    if mode == "terminal":
+        enqueue_terminal_jobs(message)
+        return
+    try:
+        subprocess.Popen(
+            ["python3", str(BASE / "bin" / "langgraph_dispatch.py"), message],
+            cwd=str(BASE),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        try:
+            (DATA / "dispatch.log").open("a").write(
+                f"{time.strftime('%H:%M:%S')} server dispatch error: {exc}\n")
+        except Exception:
+            pass
+
+def enqueue_terminal_jobs(message):
+    """In visible-terminal mode, route message into per-agent queues."""
+    AGENT_QUEUES.mkdir(exist_ok=True)
+    target = None
+    task = message
+    m = re.match(r"^@([A-Za-z0-9_-]+)\s+(.*)", message, re.S)
+    if m and m.group(1).lower() in AGENTS:
+        target = m.group(1).lower()
+        task = m.group(2).strip()
+    if not target:
+        # Match the background default: unaddressed messages go to Claude unless
+        # the user explicitly asks a specialized agent.
+        low = message.lower()
+        if any(k in low for k in ("build", "test", "fix", "edit", "собери", "починь", "исправь")):
+            target = "codex"
+        elif any(k in low for k in ("explain", "compare", "research", "объясни", "сравни", "почему")):
+            target = "gemini"
+        else:
+            target = "claude"
+    rec = {"ts": time.time(), "source": "server", "task": task}
+    with (AGENT_QUEUES / f"{target}.jsonl").open("a") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    try:
+        (DATA / "dispatch.log").open("a").write(
+            f"{time.strftime('%H:%M:%S')} queued terminal {target}: {task[:80]}\n")
     except Exception:
         pass
 
@@ -68,10 +163,19 @@ TOKEN = _load_token()
 PROJECTS = {
     "depz-toolkit":          pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
     "istereolab-sdk":        pathlib.Path("/home/wera_n/GIT/istereolab-sdk"),
-    "depz-camera-sdk":       pathlib.Path("/home/wera_n/GIT/depz-camera-sdk"),
     "ifirmware-stereocam":   pathlib.Path("/home/wera_n/GIT/ifirmware-stereocam"),
     "iproject_menger":       BASE,
 }
+AGENTS = {
+    "claude": {"label": "🤖 Claude", "prefix": "@claude", "engine": "claude", "can_delegate": True},
+    "codex":  {"label": "⚡ Codex", "prefix": "@codex", "engine": "codex", "can_delegate": True},
+    "gemini": {"label": "✦ Gemini", "prefix": "@gemini", "engine": "gemini", "can_delegate": True},
+    "openai": {"label": "◆ GPT-5", "prefix": "@openai", "engine": "codex", "can_delegate": True},
+}
+_only = [a.strip() for a in os.environ.get("DEPZ_AGENTS", "").split(",") if a.strip()]
+if _only:
+    AGENTS = {a: AGENTS[a] for a in _only if a in AGENTS}
+
 SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
 
 def git(path, *args, timeout=8):
@@ -129,6 +233,8 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Requested-With")
         if getattr(self, "_cookie_token", None):
             self.send_header("Set-Cookie",
                 f"k={self._cookie_token}; Path=/; Max-Age=31536000; SameSite=Lax")
@@ -196,6 +302,13 @@ class H(http.server.BaseHTTPRequestHandler):
                             "head": sha, "date": date, "subject": subj})
             self._s(200, json.dumps(out, ensure_ascii=False)); return
 
+        if p == "/api/agents":
+            out = [{"id": aid, **spec} for aid, spec in AGENTS.items()]
+            self._s(200, json.dumps(out, ensure_ascii=False)); return
+        if p == "/api/dispatch_mode":
+            mode = DISPATCH_MODE.read_text().strip() if DISPATCH_MODE.exists() else "background"
+            self._s(200, json.dumps({"mode": mode}, ensure_ascii=False)); return
+
         if p == "/api/git":
             name = q.get("p", ""); what = q.get("what", "")
             if name not in PROJECTS: self._s(400, json.dumps({"error": "unknown project"})); return
@@ -230,6 +343,127 @@ class H(http.server.BaseHTTPRequestHandler):
                 self._s(200, json.dumps({"text": git(path, "show", "--stat",
                     "--pretty=format:%h  %an  %ad%n%s%n", "--date=short", sha)})); return
             self._s(400, json.dumps({"error": "bad what"})); return
+
+        if p == "/api/imports":
+            # File-level dependency graph: parse #include / import directives.
+            # Returns {nodes:[{path,ext,size}], edges:[{source,target,kind}]}.
+            name = q.get("p", "")
+            if name not in PROJECTS: self._s(400, json.dumps({"error":"unknown project"})); return
+            base = PROJECTS[name].resolve()
+            files = []
+            try:
+                gout = subprocess.run(["git","-C",str(base),"ls-files"],
+                                      capture_output=True, text=True, timeout=5)
+                if gout.returncode == 0 and gout.stdout.strip():
+                    files = [l for l in gout.stdout.splitlines() if l]
+            except Exception: pass
+            if not files:
+                for root, dirs, fs in os.walk(base):
+                    dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules","__pycache__","build","dist")]
+                    for f in fs:
+                        rel = os.path.relpath(os.path.join(root, f), base)
+                        files.append(rel)
+                        if len(files) >= 1500: break
+                    if len(files) >= 1500: break
+            files = files[:1500]
+
+            include_re = re.compile(rb'^\s*#\s*include\s+[<"]([^>"]+)[>"]', re.M)
+            py_import_re = re.compile(rb'^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))', re.M)
+            js_import_re = re.compile(rb'(?:^|\n)\s*(?:import|require)\s*\(?["\']([^"\']+)["\']', re.M)
+
+            # build basename index for resolving headers without full path
+            by_basename = {}
+            for f in files:
+                base_name = f.rsplit("/", 1)[-1]
+                by_basename.setdefault(base_name, []).append(f)
+
+            nodes = []
+            edges = []
+            for rel in files:
+                ext = rel.rsplit(".", 1)[-1].lower() if "." in rel.rsplit("/",1)[-1] else ""
+                try: sz = (base / rel).stat().st_size
+                except: sz = 0
+                nodes.append({"path": rel, "ext": ext, "size": sz})
+
+                if ext not in ("h","hpp","cpp","c","cc","cxx","py","ts","tsx","js","jsx","mjs"):
+                    continue
+                try:
+                    data = (base / rel).read_bytes()[:200_000]
+                except Exception:
+                    continue
+
+                deps = set()
+                if ext in ("h","hpp","cpp","c","cc","cxx"):
+                    for m in include_re.finditer(data):
+                        inc = m.group(1).decode("utf-8","ignore")
+                        # try exact basename match within project
+                        base_inc = inc.rsplit("/",1)[-1]
+                        if base_inc in by_basename:
+                            for cand in by_basename[base_inc]:
+                                if cand != rel:
+                                    deps.add(cand)
+                elif ext == "py":
+                    for m in py_import_re.finditer(data):
+                        mod = (m.group(1) or m.group(2) or b"").decode("utf-8","ignore")
+                        first = mod.split(".")[-1]
+                        for cand in by_basename.get(first + ".py", []):
+                            if cand != rel: deps.add(cand)
+                else:  # js / ts
+                    for m in js_import_re.finditer(data):
+                        target = m.group(1).decode("utf-8","ignore")
+                        target_base = target.rsplit("/",1)[-1]
+                        for ext_try in (".js",".ts",".jsx",".tsx",""):
+                            cands = by_basename.get(target_base + ext_try, [])
+                            for cand in cands:
+                                if cand != rel: deps.add(cand); break
+
+                for d in deps:
+                    edges.append({"source": rel, "target": d, "kind": "include" if ext in ("h","hpp","cpp","c","cc","cxx") else "import"})
+
+            self._s(200, json.dumps({"project": name, "n_files": len(nodes),
+                                     "n_edges": len(edges),
+                                     "nodes": nodes, "edges": edges}, ensure_ascii=False)); return
+
+        if p == "/api/tree":
+            # Recursive flat file list for graph view. Uses git ls-files if repo,
+            # else walks the dir. Caps at 1500 files to keep the graph render-able.
+            name = q.get("p", "")
+            if name not in PROJECTS: self._s(400, json.dumps({"error":"unknown project"})); return
+            base = PROJECTS[name].resolve()
+            files = []
+            try:
+                git_out = subprocess.run(["git","-C",str(base),"ls-files"],
+                                         capture_output=True, text=True, timeout=5)
+                if git_out.returncode == 0 and git_out.stdout.strip():
+                    files = [l for l in git_out.stdout.splitlines() if l]
+            except Exception: pass
+            if not files:
+                for root, dirs, fs in os.walk(base):
+                    dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules","__pycache__","build","dist")]
+                    for f in fs:
+                        rel = os.path.relpath(os.path.join(root, f), base)
+                        files.append(rel)
+                        if len(files) >= 1500: break
+                    if len(files) >= 1500: break
+            files = files[:1500]
+            entries = []
+            # K̂ (Kolmogorov estimate) = gzip(file) / raw(file) — low ratio = high redundancy/compressibility
+            for rel in files:
+                fp = base / rel
+                try:
+                    sz = fp.stat().st_size
+                except Exception: sz = 0
+                k = None
+                # Only compute K̂ for small-ish text files (< 64 KB) to keep response snappy
+                if 0 < sz < 64_000:
+                    try:
+                        data = fp.read_bytes()
+                        compressed = gzip.compress(data, compresslevel=6)
+                        k = round(len(compressed) / max(1, sz), 3)
+                    except Exception: pass
+                entries.append({"path": rel, "size": sz, "k": k})
+            self._s(200, json.dumps({"project": name, "count": len(entries),
+                                     "entries": entries}, ensure_ascii=False)); return
 
         if p == "/api/files":
             name = q.get("p", ""); sub = q.get("sub", "").lstrip("/")
@@ -520,26 +754,15 @@ class H(http.server.BaseHTTPRequestHandler):
             t = q.get("text", "").strip()
             img_raw = q.get("img", "").strip()
             imgs = [x.strip() for x in img_raw.split(",") if x.strip()] if img_raw else []
-            if t or imgs:
-                entry = {"ts": time.strftime("%H:%M:%S"), "at": time.time(),
-                         "text": t or ("📎 " + ", ".join(x.split("/")[-1] for x in imgs))}
-                if imgs:
-                    entry["imgs"] = imgs
-                    if len(imgs) == 1:
-                        entry["img"] = imgs[0]   # backward compat for single-img log renderer
-                with INBOX.open("a") as f:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                files_str = " ".join("[file: " + str(BASE / x) + "]" for x in imgs)
-                inbox_text = (t + " " + files_str).strip() if t else files_str
-                if not inbox_text: inbox_text = t
-                NEW.write_text(inbox_text)
-                if t:
-                    m = re.match(r"^\[([^\]]+)\]", t)   # [project] prefix → active project
-                    if m: (DATA / "active_project").write_text(m.group(1).strip())
-                set_status(True, "получил сообщение, думаю…")
-                try: (DATA / "choices.json").unlink()   # a message resolves any pending choice
-                except FileNotFoundError: pass
-            self._s(200, json.dumps({"ok": bool(t or imgs)})); return
+            ok = receive_site_message(t, imgs, "say")
+            self._s(200, json.dumps({"ok": ok})); return
+        if p == "/hook":
+            items = []
+            if INBOX.exists():
+                for ln in INBOX.read_text().splitlines()[-20:]:
+                    try: items.append(json.loads(ln))
+                    except Exception: pass
+            self._s(200, json.dumps({"ok": True, "messages": items}, ensure_ascii=False)); return
         if p == "/choices":
             cf = DATA / "choices.json"
             self._s(200, cf.read_text() if cf.is_file() else "{}"); return
@@ -550,11 +773,169 @@ class H(http.server.BaseHTTPRequestHandler):
                 d = {}
             self._s(200, json.dumps({"busy": d.get("busy", False),
                                      "text": d.get("text", ""), "at": d.get("at", 0)})); return
+        if p == "/claims":
+            # Live file-lock map folded from append-only claims.jsonl
+            # (written by bin/claim). collisions = files held by >1 agent.
+            state = {}
+            cf = DATA / "claims.jsonl"
+            if cf.exists():
+                for ln in cf.read_text().splitlines():
+                    try: e = json.loads(ln)
+                    except Exception: continue
+                    state[(e["agent"], e["file"])] = e["op"]
+            holders = {}
+            for (agent, f), op in state.items():
+                if op == "take":
+                    holders.setdefault(f, []).append(agent)
+            collisions = {f: a for f, a in holders.items() if len(a) > 1}
+            self._s(200, json.dumps({"holders": holders,
+                                     "collisions": collisions}, ensure_ascii=False)); return
+        if p == "/state":
+            # Live state of EVERY agent, derived from graph_events.jsonl
+            # (node_enter/node_exit already carry node=<agent>). No extra logging.
+            # reason carries the exit cause ("timeout" / error text) for the UI.
+            st = {a: {"busy": False, "text": "", "at": 0.0, "ok": None, "reason": ""}
+                  for a in AGENTS}
+            gf = DATA / "graph_events.jsonl"
+            if gf.exists():
+                for ln in gf.read_text().splitlines()[-2000:]:
+                    try: e = json.loads(ln)
+                    except Exception: continue
+                    a = e.get("node")
+                    if a not in st: continue
+                    ts = e.get("ts", 0)
+                    if e.get("event") == "node_enter":
+                        st[a].update(busy=True, text=e.get("task", ""), at=ts, ok=None, reason="")
+                    elif e.get("event") == "node_exit":
+                        st[a].update(busy=False, at=ts, ok=e.get("ok"),
+                                     reason=e.get("reason", ""))
+            now = time.time()
+            for a in st:                       # stale busy (>120s) → treat as timeout
+                if st[a]["busy"] and (now - st[a]["at"]) > 120:
+                    st[a].update(busy=False, ok=False, reason="timeout")
+            self._s(200, json.dumps({"now": now, "agents": st}, ensure_ascii=False)); return
+        if p == "/api/activity":
+            # Single consolidated live view for the main-page indicator:
+            # who's running now, the current stage, the wait timer, the last
+            # few execution steps, and an explicit blocked/timeout alert that
+            # would otherwise only live in replies.jsonl.
+            STALE = 120
+            evs = []
+            gf = DATA / "graph_events.jsonl"
+            if gf.exists():
+                for ln in gf.read_text().splitlines()[-400:]:
+                    try: evs.append(json.loads(ln))
+                    except Exception: continue
+            now = time.time()
+            STEP = {"node_enter", "node_exit", "delegation", "run_start", "run_end"}
+            def label(e):
+                ev, n = e.get("event"), e.get("node", "")
+                if ev == "node_enter":
+                    t = (e.get("task") or "").strip()
+                    return f"▶ {n}" + (f": {t[:60]}" if t else "")
+                if ev == "node_exit":
+                    if e.get("ok") is False:
+                        return f"✗ {n}: {(e.get('reason') or 'fail')[:50]}"
+                    return f"✓ {n}"
+                if ev == "delegation":
+                    return f"↪ {e.get('src','')}→{e.get('dst','')}"
+                if ev == "run_start": return "● run start"
+                if ev == "run_end":   return "■ run end"
+                return ev or "?"
+            steps = [e for e in evs if e.get("event") in STEP]
+            events = [{"t": e.get("t", ""), "at": e.get("at") or e.get("ts", 0),
+                       "text": label(e)} for e in steps[-3:]]
+            # current agent: most recent node_enter with no later node_exit, fresh.
+            current, stage, at = None, "", 0.0
+            open_at = {}
+            for e in evs:
+                a = e.get("node")
+                if a not in AGENTS: continue
+                if e.get("event") == "node_enter":
+                    open_at[a] = (e.get("ts", 0), e.get("task", ""))
+                elif e.get("event") == "node_exit":
+                    open_at.pop(a, None)
+            if open_at:
+                a = max(open_at, key=lambda k: open_at[k][0])
+                ts, task = open_at[a]
+                if (now - ts) <= STALE:
+                    current, stage, at = a, task, ts
+            try:
+                d = json.loads(STATUS.read_text()) if STATUS.exists() else {}
+            except Exception:
+                d = {}
+            if d.get("busy") and (now - d.get("at", 0)) <= STALE:
+                stage = d.get("text") or stage
+                at = at or d.get("at", 0)
+            # alert: the most recent terminal failure, unless work resumed after it.
+            alert = None
+            for e in reversed(evs):
+                ev = e.get("event")
+                if ev in ("node_enter", "run_start"):
+                    break
+                if ev == "node_exit" and e.get("ok") is False:
+                    reason = (e.get("reason") or "").lower()
+                    if "timeout" in reason:
+                        kind = "timeout"
+                    elif any(w in reason for w in ("permission", "denied", "blocked", "not allowed")):
+                        kind = "blocked"
+                    else:
+                        kind = "error"
+                    alert = {"kind": kind, "agent": e.get("node", ""),
+                             "reason": e.get("reason") or kind, "t": e.get("t", "")}
+                    break
+            self._s(200, json.dumps({
+                "current": current, "stage": stage, "at": at, "now": now,
+                "events": events, "alert": alert,
+            }, ensure_ascii=False)); return
         if p == "/feedback":
             ts = q.get("ts", ""); v = q.get("v", "")
             if ts and v in ("up", "down"):
+                now = time.time()
                 (DATA / "feedback.jsonl").open("a").write(
-                    json.dumps({"ts": ts, "v": v, "at": time.strftime("%H:%M:%S")}) + "\n")
+                    json.dumps({"ts": ts, "v": v, "at": now,
+                                "at_hh": time.strftime("%H:%M:%S")}) + "\n")
+                jid = None; project = None; model = None
+                try:
+                    if REPLY.exists():
+                        for ln in REPLY.read_text().splitlines()[-200:]:
+                            try: r = json.loads(ln)
+                            except Exception: continue
+                            if r.get("ts") == ts:
+                                model = r.get("model") or r.get("role"); break
+                except Exception: pass
+                try:
+                    ap = DATA / "active_project"
+                    project = ap.read_text().strip() if ap.exists() else ""
+                    bp = DATA / "brain" / project / "main.jsonl"
+                    if bp.exists():
+                        for ln in bp.read_text().splitlines()[-300:]:
+                            try: j = json.loads(ln)
+                            except Exception: continue
+                            if j.get("ts") == ts and (not model or j.get("model","claude") == model):
+                                jid = j.get("id"); break
+                except Exception: pass
+                if jid:
+                    rel = "thumbs_up" if v == "up" else "thumbs_down"
+                    weight = 1.0 if v == "up" else -1.0
+                    try:
+                        (DATA / "relations.jsonl").open("a").write(json.dumps({
+                            "ts": time.strftime("%H:%M:%S"), "at": now,
+                            "from_kind": "user", "from_id": "you",
+                            "to_kind": "judgment", "to_id": jid,
+                            "rel": rel, "weight": weight,
+                            "source": "user", "project": project,
+                        }, ensure_ascii=False) + "\n")
+                    except Exception: pass
+            self._s(200, json.dumps({"ok": True})); return
+        if p == "/hide":
+            # Append-only tombstone: never delete a row, just mark ts hidden.
+            # Reversible — a later {hidden:false} un-hides (0 Landauer cost).
+            ts = q.get("ts", ""); v = q.get("v", "1")
+            if ts:
+                (DATA / "hidden.jsonl").open("a").write(json.dumps({
+                    "ts": ts, "hidden": v != "0", "at": time.time(),
+                    "at_hh": time.strftime("%H:%M:%S")}, ensure_ascii=False) + "\n")
             self._s(200, json.dumps({"ok": True})); return
         if p == "/ctx":
             ap = DATA / "active_project"
@@ -562,6 +943,10 @@ class H(http.server.BaseHTTPRequestHandler):
             cf = DATA / "ctx" / (name + ".md")
             self._s(200, json.dumps({"project": name,
                 "text": cf.read_text() if cf.exists() else ""}, ensure_ascii=False)); return
+        if p == "/api/shared_context":
+            self._s(200, json.dumps({
+                "text": SHARED_CONTEXT.read_text(errors="ignore") if SHARED_CONTEXT.exists() else ""
+            }, ensure_ascii=False)); return
         if p == "/log":
             # Reconstruct chronological order across midnight boundaries.
             # Entries with `at` (epoch float) are sorted by it directly.
@@ -591,7 +976,16 @@ class H(http.server.BaseHTTPRequestHandler):
                         all_entries.append((sort_key, idx, o))
                     except Exception: pass
             all_entries.sort(key=lambda x: x[0])
-            items = [o for _, _, o in all_entries]
+            hidden = set()
+            hf = DATA / "hidden.jsonl"
+            if hf.exists():
+                for ln in hf.read_text().splitlines():
+                    try:
+                        h = json.loads(ln); t = h.get("ts")
+                        if not t: continue
+                        hidden.add(t) if h.get("hidden", True) else hidden.discard(t)
+                    except Exception: pass
+            items = [o for _, _, o in all_entries if o.get("ts") not in hidden]
             self._s(200, json.dumps(items[-60:], ensure_ascii=False)); return
         if p == "/trace":
             items = []
@@ -664,7 +1058,7 @@ class H(http.server.BaseHTTPRequestHandler):
             gf = DATA / "graph_events.jsonl"
             rows = []
             if gf.exists():
-                for ln in gf.read_text().splitlines()[-120:]:
+                for ln in gf.read_text().splitlines()[-1000:]:
                     try: rows.append(json.loads(ln))
                     except Exception: pass
             self._s(200, json.dumps(rows, ensure_ascii=False)); return
@@ -682,6 +1076,17 @@ class H(http.server.BaseHTTPRequestHandler):
             self._s(200, cf.read_text() if cf.exists() else "[]"); return
         if p == "/api/brain/list":
             name = q.get("p", "")
+            # No project specified → list ALL projects that have any brain data
+            if not name:
+                projects = []
+                bd_root = DATA / "brain"
+                if bd_root.is_dir():
+                    for sub in sorted(bd_root.iterdir()):
+                        if sub.name not in PROJECTS: continue
+                        if sub.is_dir() and any(sub.glob("*.jsonl")):
+                            projects.append(sub.name)
+                self._s(200, json.dumps(projects, ensure_ascii=False)); return
+            # Project specified → list graph files inside it
             graphs = []
             bd = DATA / "brain" / name
             if name in PROJECTS and bd.is_dir():
@@ -694,8 +1099,13 @@ class H(http.server.BaseHTTPRequestHandler):
             bd = DATA / "brain" / name
             if name in PROJECTS and bd.is_dir():
                 if not gname:
-                    files = sorted(bd.glob("*.jsonl"))
-                    bf = files[0] if files else None
+                    # Prefer main.jsonl by name (stable); fall back to newest mtime
+                    main = bd / "main.jsonl"
+                    if main.is_file():
+                        bf = main
+                    else:
+                        files = sorted(bd.glob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+                        bf = files[0] if files else None
                 else:
                     bf = bd / (gname + ".jsonl")
                     bf = bf if bf.is_file() else None
@@ -714,6 +1124,63 @@ class H(http.server.BaseHTTPRequestHandler):
                     try: items.append(json.loads(ln))
                     except Exception: pass
             self._s(200, json.dumps(items, ensure_ascii=False)); return
+        if p == "/api/relations":
+            # Unified edge store: data/relations.jsonl
+            # Filters: ?p=<project>&node=<id>&rel=<rel>&limit=200
+            rf = DATA / "relations.jsonl"
+            items = []
+            if rf.is_file():
+                for ln in rf.read_text().splitlines():
+                    try: items.append(json.loads(ln))
+                    except Exception: pass
+            pf, nf, rf_ = q.get("p","").strip(), q.get("node","").strip(), q.get("rel","").strip()
+            if pf: items = [e for e in items if e.get("project") == pf]
+            if nf: items = [e for e in items if e.get("from_id") == nf or e.get("to_id") == nf]
+            if rf_: items = [e for e in items if e.get("rel") == rf_]
+            try: lim = max(1, min(2000, int(q.get("limit","500"))))
+            except Exception: lim = 500
+            self._s(200, json.dumps(items[-lim:], ensure_ascii=False)); return
+        if p == "/api/distill":
+            # On-the-fly markdown distillation via bin/distill.py
+            # ?p=PROJECT (default: active project)
+            import subprocess
+            project = q.get("p", "").strip()
+            if not project:
+                ap = DATA / "active_project"
+                project = ap.read_text().strip() if ap.exists() else ""
+            if not project or project not in PROJECTS:
+                self._s(400, json.dumps({"error":"unknown project"})); return
+            try:
+                r = subprocess.run(
+                    ["python3", str(BASE / "bin" / "distill.py"), "--stdout", project],
+                    capture_output=True, text=True, timeout=15)
+                md = r.stdout or r.stderr or "(пусто)"
+            except Exception as exc:
+                self._s(500, json.dumps({"error": str(exc)})); return
+            # plain markdown response — let the client render
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.end_headers()
+            self.wfile.write(md.encode("utf-8"))
+            return
+        if p == "/api/meta_facts":
+            # Predictive / compressed facts produced by bin/meta_compact.py
+            # Filters: ?p=<project>&kind=<kind>&limit=100
+            mf = DATA / "meta.jsonl"
+            items = []
+            if mf.is_file():
+                for ln in mf.read_text().splitlines():
+                    try: items.append(json.loads(ln))
+                    except Exception: pass
+            pf, kf = q.get("p","").strip(), q.get("kind","").strip()
+            if pf: items = [m for m in items if m.get("project") == pf]
+            if kf: items = [m for m in items if m.get("kind") == kf]
+            try: lim = max(1, min(500, int(q.get("limit","100"))))
+            except Exception: lim = 100
+            self._s(200, json.dumps(items[-lim:], ensure_ascii=False)); return
         if p == "/hyp/add":
             name = q.get("p", ""); text = q.get("text", "").strip()
             if name in PROJECTS and text:
@@ -809,6 +1276,69 @@ class H(http.server.BaseHTTPRequestHandler):
             return
         u = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+        if u.path == "/hook":
+            try:
+                n = int(self.headers.get("Content-Length", "0") or "0")
+                raw = self.rfile.read(n) if n > 0 else b""
+                ctype = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                text = q.get("text") or q.get("message") or ""
+                imgs = []
+                source = q.get("source", "hook")
+
+                if raw:
+                    if ctype == "application/json":
+                        d = json.loads(raw.decode("utf-8"))
+                        if isinstance(d, dict):
+                            text = str(d.get("text") or d.get("message") or text or "")
+                            img_val = d.get("imgs", d.get("img", []))
+                            if isinstance(img_val, str):
+                                imgs = [img_val]
+                            elif isinstance(img_val, list):
+                                imgs = [str(x) for x in img_val]
+                            source = str(d.get("source") or source)
+                    elif ctype == "application/x-www-form-urlencoded":
+                        form = urllib.parse.parse_qs(raw.decode("utf-8"))
+                        text = form.get("text", form.get("message", [text]))[0]
+                        imgs = form.get("img", []) + form.get("imgs", [])
+                        source = form.get("source", [source])[0]
+                    elif not text:
+                        text = raw.decode("utf-8", "replace")
+
+                ok = receive_site_message(text, imgs, source)
+                self._s(200, json.dumps({"ok": ok, "source": source}, ensure_ascii=False))
+            except Exception as e:
+                self._s(400, json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+            return
+        if u.path == "/api/shared_context":
+            try:
+                n = int(self.headers.get("Content-Length", "0") or "0")
+                raw = self.rfile.read(n) if n > 0 else b""
+                ctype = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                text = ""
+                if ctype == "application/json" and raw:
+                    d = json.loads(raw.decode("utf-8"))
+                    text = str(d.get("text", ""))
+                else:
+                    text = raw.decode("utf-8", "replace")
+                SHARED_CONTEXT.write_text(text[:20_000])
+                self._s(200, json.dumps({"ok": True, "bytes": len(text.encode("utf-8"))}))
+            except Exception as e:
+                self._s(400, json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+            return
+        if u.path == "/api/dispatch_mode":
+            try:
+                n = int(self.headers.get("Content-Length", "0") or "0")
+                raw = self.rfile.read(n) if n > 0 else b""
+                mode = raw.decode("utf-8", "replace").strip()
+                if raw.startswith(b"{"):
+                    mode = json.loads(raw.decode("utf-8")).get("mode", "")
+                if mode not in ("background", "terminal"):
+                    self._s(400, json.dumps({"ok": False, "error": "bad mode"})); return
+                DISPATCH_MODE.write_text(mode)
+                self._s(200, json.dumps({"ok": True, "mode": mode}))
+            except Exception as e:
+                self._s(400, json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+            return
         if u.path == "/upload":
             try:
                 n = int(self.headers.get("Content-Length", "0") or "0")
@@ -829,6 +1359,11 @@ class H(http.server.BaseHTTPRequestHandler):
                 self._s(400, json.dumps({"error": str(e)}))
             return
         self._s(404, "no")
+
+    def do_OPTIONS(self):
+        if not self._guard():
+            return
+        self._s(204, b"", "text/plain; charset=utf-8")
 
     def log_message(self, *_): pass
 

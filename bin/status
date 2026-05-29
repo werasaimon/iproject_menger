@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# status — presence line per agent. ОДНО оправданное место для overwrite:
+# presence эфемерен по определению (срез «здесь и сейчас», не лог).
+# Формат файла data/status/<agent>.txt — 5 полей через ' · ', фиксированный порядок:
+#   agent · state · claim · note · ts
+# Fisher>0: каждое поле несёт свой тип информации, не stringly-typed мусор.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="$ROOT/data/status"
+mkdir -p "$DIR"
+
+cmd="${1:-show}"; shift || true
+
+case "$cmd" in
+  set)
+    # bin/status set <agent> <state> [claim] [note]
+    agent="${1:?agent}"; state="${2:?state}"; claim="${3:-}"; note="${4:-}"
+    ts="$(date '+%H:%M:%S')"
+    printf '%s · %s · %s · %s · %s\n' "$agent" "$state" "$claim" "$note" "$ts" > "$DIR/$agent.txt"
+    ;;
+  get)
+    # bin/status get <agent>
+    agent="${1:?agent}"
+    cat "$DIR/$agent.txt" 2>/dev/null || echo "$agent · offline ·  ·  · -"
+    ;;
+  show)
+    # глобальный срез состояния петли в момент t
+    for a in claude codex gemini openai; do
+      cat "$DIR/$a.txt" 2>/dev/null || echo "$a · offline ·  ·  · -"
+    done
+    ;;
+  *)
+    echo "usage: status {set <agent> <state> [claim] [note] | get <agent> | show}" >&2
+    exit 2
+    ;;
+esac

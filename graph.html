@@ -108,7 +108,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 system-
   <div id="side">
     <div id="side-hdr">
       🕸 История запусков
-      <a href="/">← назад</a>
+      <a href="/" target="_top">← назад</a>
     </div>
     <div id="runs"><div style="padding:14px;color:var(--mut);font-size:12px">ожидание…</div></div>
   </div>
@@ -243,6 +243,32 @@ setTimeout(()=>{
     tip.style.top =(oe.clientY+th>H?oe.clientY-th:oe.clientY+12)+"px";
   });
   cy.on("mouseout","edge",()=>hideTip());
+  // tap handlers for touch devices (mouseover doesn't fire on phones)
+  cy.on("tap","node", e => {
+    const id = e.target.id();
+    const oe = e.originalEvent || {};
+    const labels = {router:"Роутер — вычисляет H и attention_weights",
+      claude:"Claude Code — основной агент",
+      codex:"Codex exec — build/run/fix задачи",
+      gemini:"Gemini — research и explain",
+      aggregate:"Aggregate — оценка результатов, retry или done"};
+    const cx = oe.clientX || (e.target.renderedPosition && e.target.renderedPosition().x) || 100;
+    const cy = oe.clientY || (e.target.renderedPosition && e.target.renderedPosition().y) || 100;
+    showTip(cx, cy,
+      `<div class="tip-tool">🔵 ${(window.NL && window.NL[id]) || id}</div>`+
+      `<div class="tip-row">${labels[id] || "—"}</div>`+
+      `<div class="tip-row" style="margin-top:6px;color:#8b949e">тапни мимо чтобы закрыть</div>`);
+  });
+  cy.on("tap","edge", e => {
+    const d = e.target.data();
+    const oe = e.originalEvent || {};
+    const lbl = e.target.style("label") || "";
+    showTip(oe.clientX || 100, oe.clientY || 100,
+      `<div class="tip-tool">→ ребро ${d.source} → ${d.target}</div>`+
+      `<div class="tip-row">вес: <b>${lbl || "—"}</b></div>`);
+  });
+  cy.on("tap", e => { if (e.target === cy) hideTip(); });
+
 },0);
 
 const EMAP={router_claude:"r_cl",router_codex:"r_co",router_gemini:"r_ge",
@@ -317,7 +343,7 @@ function buildLayout(name, nodeCount){
 }
 
 function renderTrace(evts){
-  const steps = evts.filter(e=>e.event==="claude_tool");
+  const steps = evts.filter(e=>(e.event==="claude_tool" || e.event==="tool_use"));
   document.getElementById("step-badge").textContent = steps.length+" шагов";
 
   // evlog2
@@ -553,7 +579,7 @@ let traceSessions=[], selTraceIdx=-1;
 
 // Groups claude_tool events into sessions by time gap (>120s = new session)
 function parseTraceSessions(evts){
-  const steps=evts.filter(e=>e.event==="claude_tool");
+  const steps=evts.filter(e=>(e.event==="claude_tool" || e.event==="tool_use"));
   if(!steps.length) return [];
   const GAP=120;
   const sessions=[]; let cur=null;
@@ -630,7 +656,7 @@ function renderEvLog(evts){
     else if(e.event==="edge_activate") b=`${e.src}→${e.dst}  w=${e.weight}`;
     else if(e.event==="node_enter") b=e.node;
     else if(e.event==="node_exit") b=`${e.node} ok=${e.ok}${e.reason?" "+e.reason:""}${e.chars?" "+e.chars+"ch":""}`;
-    else if(e.event==="claude_tool") b=`${e.icon||"🔧"} ${e.tool}  ${(e.what||"").replace(/</g,"&lt;")}`;
+    else if((e.event==="claude_tool" || e.event==="tool_use")) b=`${e.icon||"🔧"} ${e.tool}  ${(e.what||"").replace(/</g,"&lt;")}`;
     else if(e.event==="run_end") b=`→[${(e.active||[]).join(",")}]`;
     return `<div class="ev"><span class="ev-t">${e.t||""}</span><span class="ev-k ${e.event}">${e.event}</span><span class="ev-b">${b}</span></div>`;
   }).join("");

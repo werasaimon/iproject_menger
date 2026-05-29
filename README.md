@@ -16,6 +16,9 @@ never injects any of its code into them, so the managed projects stay clean.
   - a **file tree** browser.
 - A **pair chat**: the browser sends text; the Claude Code agent watches
   `data/inbox_new`, replies into `data/replies.jsonl`, and can update the UI.
+- A small **message hook** for other site code:
+  - `POST /hook` with JSON, form data, or plain text writes into the same inbox.
+  - `GET /hook` returns the last incoming site messages.
 
 ## Run
 
@@ -25,6 +28,17 @@ python3 server.py        # http://localhost:8078/  (LAN: http://<host>:8078/)
 
 Open `http://localhost:8078/` on this machine, or `http://<lan-ip>:8078/` from a
 phone/tablet on the same network.
+
+## Message hook
+
+```bash
+curl -X POST http://localhost:8078/hook \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"сообщение с сайта","source":"my-site"}'
+```
+
+The hook accepts `text` or `message`. It appends to `data/inbox.jsonl`, refreshes
+`data/inbox_new`, and wakes the existing watcher loop.
 
 ## Layout
 

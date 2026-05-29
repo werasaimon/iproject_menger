@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Append a manual relation edge to data/relations.jsonl.
+
+Usage:
+  bin/relate FROM_ID TO_ID REL [WEIGHT]            # judgment→judgment, source=user
+  bin/relate FROM_ID TO_ID REL WEIGHT KIND_FROM KIND_TO
+"""
+import sys, json, time, pathlib
+
+if len(sys.argv) < 4:
+    print(__doc__); sys.exit(2)
+
+from_id = sys.argv[1]
+to_id   = sys.argv[2]
+rel     = sys.argv[3]
+weight  = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
+fk      = sys.argv[5] if len(sys.argv) > 5 else "judgment"
+tk      = sys.argv[6] if len(sys.argv) > 6 else "judgment"
+
+D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+ap = (D / "active_project").read_text().strip() if (D / "active_project").exists() else None
+
+rec = {
+    "ts": time.strftime("%H:%M:%S"),
+    "at": time.time(),
+    "from_kind": fk, "from_id": from_id,
+    "to_kind":   tk, "to_id":   to_id,
+    "rel": rel, "weight": round(weight, 3),
+    "source": "user",
+}
+if ap: rec["project"] = ap
+
+D.joinpath("relations.jsonl").open("a").write(json.dumps(rec, ensure_ascii=False) + "\n")
+print(f"ok {fk}:{from_id} -[{rel} w={weight}]→ {tk}:{to_id}")

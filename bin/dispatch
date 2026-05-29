@@ -5,7 +5,8 @@ All AI workers run as background processes — dispatch returns immediately.
 
   @codex <task>   → codex CLI (fast, mechanical edits)
   @gemini <q>     → gemini CLI (research, explanations)
-  (default)       → write to data/claude_inbox.txt for Claude to pick up
+  @openai <task>  → codex CLI with GPT-5/OpenAI label
+  (default)       → write to data/claude_inbox.txt for legacy Claude watcher
 """
 import sys, os, json, time, pathlib, subprocess, re
 
@@ -14,6 +15,14 @@ REPLY = D / "replies.jsonl"
 STATUS = D / "status.json"
 CLAUDE_INBOX = D / "claude_inbox.txt"
 LOG = D / "dispatch.log"
+
+AGENTS = {
+    "claude": {"label": "🤖 Claude", "prefix": "@claude", "engine": "claude"},
+    "codex":  {"label": "⚡ Codex", "prefix": "@codex", "engine": "codex"},
+    "gemini": {"label": "✦ Gemini", "prefix": "@gemini", "engine": "gemini"},
+    "openai": {"label": "◆ GPT-5", "prefix": "@openai", "engine": "codex"},
+}
+AGENT_RE = re.compile(r"^@(" + "|".join(re.escape(a) for a in AGENTS) + r")\s+(.*)", re.DOTALL)
 
 def _log(msg):
     try:
@@ -35,44 +44,36 @@ def write_reply(text, model):
     except Exception as e:
         _log(f"write_reply error: {e}")
 
-def run_codex(task):
-    """Fork codex exec and return immediately. Writes reply when done."""
-    _log(f"codex fork: {task[:60]}")
+def run_cli_agent(agent, task):
+    """Fork a CLI-backed agent and return immediately. Writes reply when done."""
+    model = agent
+    engine = AGENTS[agent]["engine"]
+    _log(f"{model} fork: {task[:60]}")
     def _work():
-        set_status(True, f"⚡ codex: {task[:60]}…")
+        set_status(True, f"{AGENTS[agent]['label']}: {task[:60]}…")
         try:
+            if engine == "codex":
+                cmd = ["codex", "exec", task]
+                timeout = 180
+            elif engine == "claude":
+                cmd = ["claude", "-p", "--dangerously-skip-permissions", task]
+                timeout = 180
+            elif engine == "gemini":
+                cmd = ["gemini", "-p", task]
+                timeout = 90
+            else:
+                raise RuntimeError(f"{agent} is not CLI-backed")
             r = subprocess.run(
-                ["codex", "exec", task],
-                capture_output=True, text=True, timeout=180,
+                cmd,
+                capture_output=True, text=True, timeout=timeout,
                 cwd="/home/wera_n/GIT/istereolab-sdk"
             )
             out = (r.stdout or "").strip() or (r.stderr or "").strip() or "(нет вывода)"
-            write_reply(out[:3000], "codex")
+            write_reply(out[:3000], model)
         except subprocess.TimeoutExpired:
-            write_reply("(timeout 180s)", "codex")
+            write_reply(f"(timeout)", model)
         except Exception as e:
-            write_reply(f"(ошибка: {e})", "codex")
-        set_status(False)
-    import threading
-    threading.Thread(target=_work, daemon=True).start()
-
-def run_gemini(question):
-    """Fork gemini and return immediately. Writes reply when done."""
-    _log(f"gemini fork: {question[:60]}")
-    def _work():
-        set_status(True, f"✦ gemini: {question[:60]}…")
-        try:
-            r = subprocess.run(
-                ["gemini", "-p", question],
-                capture_output=True, text=True, timeout=90,
-                cwd="/home/wera_n/GIT/istereolab-sdk"
-            )
-            out = (r.stdout or "").strip() or (r.stderr or "").strip() or "(нет вывода)"
-            write_reply(out[:3000], "gemini")
-        except subprocess.TimeoutExpired:
-            write_reply("(timeout 90s)", "gemini")
-        except Exception as e:
-            write_reply(f"(ошибка: {e})", "gemini")
+            write_reply(f"(ошибка: {e})", model)
         set_status(False)
     import threading
     threading.Thread(target=_work, daemon=True).start()
@@ -93,13 +94,10 @@ if __name__ == "__main__":
     if not text:
         sys.exit(0)
 
-    m = re.match(r"^@(codex|gemini)\s+(.*)", text, re.DOTALL)
+    m = AGENT_RE.match(text)
     if m:
         ai, task = m.group(1), m.group(2).strip()
-        if ai == "codex":
-            run_codex(task)
-        elif ai == "gemini":
-            run_gemini(task)
+        run_cli_agent(ai, task)
         # wait for thread to finish (dispatch itself was already forked by watch)
         import threading, time as _t
         deadline = _t.time() + 200

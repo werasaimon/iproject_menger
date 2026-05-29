@@ -2,6 +2,10 @@
 # Persistent daemon loop — routes each message through LangGraph.
 # Fork & so the loop re-arms before any AI finishes.
 N=/home/wera_n/GIT/iproject_menger/data/inbox_new
+if [ -f /home/wera_n/GIT/iproject_menger/data/server_dispatch_enabled ]; then
+    echo "server-owned dispatch is enabled; bin/watch is legacy and will not run"
+    exit 0
+fi
 while true; do
     rm -f "$N"
     until [ -s "$N" ]; do sleep 2; done

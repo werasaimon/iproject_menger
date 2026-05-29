@@ -14,7 +14,6 @@ AP = D / "active_project"
 PROJECTS = {
     "istereolab-sdk":       pathlib.Path("/home/wera_n/GIT/istereolab-sdk"),
     "depz-toolkit":         pathlib.Path("/home/wera_n/GIT/depz-toolkit"),
-    "depz-camera-sdk":      pathlib.Path("/home/wera_n/GIT/depz-camera-sdk"),
     "ifirmware-stereocam":  pathlib.Path("/home/wera_n/GIT/ifirmware-stereocam"),
 }
 

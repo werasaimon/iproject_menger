@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Switch back to server-owned background dispatch.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$DIR/data"
+echo background > "$DIR/data/dispatch_mode"
+echo "dispatch mode: background"

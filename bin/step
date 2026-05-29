@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
-# Log one reasoning step, shown live on the site.
+# Log one reasoning step, shown live on the site — for ANY agent.
 #   bin/step KIND "what I do" ["why"]
 # KIND in: hyp | check | found | fix | done | note
-python3 - "$1" "$2" "${3:-}" <<'PY'
+# Agent identity comes from $AGENT (claude|codex|gemini|openai), default claude.
+python3 - "$1" "$2" "${3:-}" "${AGENT:-claude}" <<'PY'
 import json, time, sys, pathlib
 D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+model = (sys.argv[4] or "claude").strip().lower()
 D.joinpath("trace.jsonl").open("a").write(
-    json.dumps({"ts": time.strftime("%H:%M:%S"), "kind": sys.argv[1],
+    json.dumps({"ts": time.strftime("%H:%M:%S"), "model": model, "kind": sys.argv[1],
                 "what": sys.argv[2], "why": sys.argv[3]}, ensure_ascii=False) + "\n")
-# each step also narrates the live "thinking" blinker
-D.joinpath("status.json").write_text(json.dumps(
-    {"busy": True, "text": sys.argv[2].strip() or "думаю…", "at": time.time()}))
+# unified live-state capture: one status row PER agent, so the site can show
+# who of the four is busy right now (перехват состояния всех агентов).
+sf = D / "status.json"
+try: st = json.loads(sf.read_text())
+except Exception: st = {}
+if "agents" not in st or not isinstance(st.get("agents"), dict): st["agents"] = {}
+st["agents"][model] = {"busy": True, "text": sys.argv[2].strip() or "думаю…", "at": time.time()}
+# keep flat keys for back-compat with the old single-agent blinker
+st.update({"busy": True, "text": sys.argv[2].strip() or "думаю…", "at": time.time(), "model": model})
+sf.write_text(json.dumps(st, ensure_ascii=False))
 print("ok")
 PY

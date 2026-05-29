@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Append-only file-lock layer for the 4-agent loop. NOT a hard lock —
+# a visible claim: who holds which file right now. Collisions (two agents
+# on one file) are detectable and become judgments in the brain.
+#
+#   bin/claim take    <agent> <file>   # I'm taking this file
+#   bin/claim release <agent> <file>   # done, hands off
+#   bin/claim show                     # current holders + collisions
+python3 - "$@" <<'PY'
+import json, time, sys, pathlib, collections
+
+D = pathlib.Path("/home/wera_n/GIT/iproject_menger/data")
+LOG = D / "claims.jsonl"
+AGENTS = ("claude", "codex", "gemini", "openai")
+
+
+def fold():
+    """Last op per (agent,file) wins. held = op==take."""
+    state = {}
+    if LOG.exists():
+        for ln in LOG.read_text().splitlines():
+            try:
+                e = json.loads(ln)
+            except Exception:
+                continue
+            state[(e["agent"], e["file"])] = e["op"]
+    holders = collections.defaultdict(list)   # file -> [agents]
+    for (agent, f), op in state.items():
+        if op == "take":
+            holders[f].append(agent)
+    return holders
+
+
+def emit(agent, op, f):
+    if agent not in AGENTS:
+        sys.exit(f"unknown agent: {agent} (want one of {', '.join(AGENTS)})")
+    row = {"ts": time.strftime("%H:%M:%S"), "at": time.time(),
+           "agent": agent, "op": op, "file": f}
+    with LOG.open("a") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+args = sys.argv[1:]
+cmd = args[0] if args else "show"
+
+if cmd in ("take", "release"):
+    if len(args) != 3:
+        sys.exit(f"usage: bin/claim {cmd} <agent> <file>")
+    agent, f = args[1], args[2]
+    emit(agent, cmd, f)
+    holders = fold()
+    others = [a for a in holders.get(f, []) if a != agent]
+    if cmd == "take" and others:
+        print(f"⚠ COLLISION on {f}: also held by {', '.join(others)}")
+    else:
+        print(f"{'🔒' if cmd == 'take' else '🔓'} {agent} {cmd} {f}")
+elif cmd == "show":
+    holders = fold()
+    if not holders:
+        print("no active claims")
+    for f, agents in sorted(holders.items()):
+        mark = "⚠ COLLISION" if len(agents) > 1 else "🔒"
+        print(f"{mark} {f} ← {', '.join(agents)}")
+else:
+    sys.exit("usage: bin/claim take|release <agent> <file>  |  bin/claim show")
+PY

@@ -43,6 +43,8 @@
   .btn-col{display:flex;flex-direction:column;gap:3px;align-self:flex-end}
   button.phys{background:transparent;border:1px solid #6e40c9;border-radius:6px;padding:3px 7px;color:#a371f7;cursor:pointer;font-size:13px;opacity:.6;transition:.15s;line-height:1}
   button.phys.on{background:#1e0a45;opacity:1;box-shadow:0 0 5px #6e40c966}
+  button.codexbtn{background:transparent;border:1px solid #58a6ff;border-radius:6px;padding:3px 7px;color:#58a6ff;cursor:pointer;font-size:13px;opacity:.6;transition:.15s;line-height:1}
+  button.codexbtn.on{background:#0a2540;opacity:1;box-shadow:0 0 5px #58a6ff66}
   .kpi{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px}
   .kpi div{background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:8px 13px}
   .kpi .v{font-size:20px;font-weight:700} .kpi .l{font-size:11px;color:var(--mut)}
@@ -112,7 +114,6 @@
     <button id="t-hyp" onclick="tab('hyp')">💡 гипотезы</button>
     <button id="t-judge" onclick="tab('judge')">суждения</button>
     <button id="t-brain" onclick="tab('brain')">🧠 граф</button>
-    <button id="t-plan" onclick="tab('plan')">📊 план</button>
     <button onclick="window.open('/meta.html?p='+encodeURIComponent(P),'_blank')">⚛ мета</button>
   </div>
 </header>
@@ -128,7 +129,7 @@
     <div id="choices"></div>
     <input type="file" id="pfup" multiple style="position:absolute;left:-9999px;top:-9999px" onchange="upimg(this)">
     <div id="pfpreview" style="display:none;font-size:11px;color:#56d364;padding:3px 10px;background:#0f2d14;border-top:1px solid #2a6b34">📎 <span id="pfname"></span><span style="color:#f85149;cursor:pointer;margin-left:8px;font-weight:700" onclick="_pClearPending()">✕</span></div>
-    <form onsubmit="return send()"><div class="btn-col"><button type="button" id="pclip" class="clip" title="прикрепить файл" onclick="document.getElementById('pfup').click()">📎</button><button type="button" id="pbtn" class="phys" title="Physics mode: K̂→1 · iso · S→min · no-inv" onclick="_pTogglePhys()">⚛</button></div><textarea id="in" rows="2" placeholder="спроси про проект… (Enter — отправить, Shift+Enter — строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button class="send">▶</button></form>
+    <form onsubmit="return send()"><div class="btn-col"><button type="button" id="pclip" class="clip" title="прикрепить файл" onclick="document.getElementById('pfup').click()">📎</button><button type="button" id="pbtn" class="phys" title="Physics mode: K̂→1 · iso · S→min · no-inv" onclick="_pTogglePhys()">⚛</button><button type="button" id="pcodex" class="codexbtn" title="отправить прямо в Codex (@codex)" onclick="_pToggleCodex()">⚡</button></div><textarea id="in" rows="2" placeholder="спроси про проект… (Enter — отправить, Shift+Enter — строка)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea><button class="send">▶</button></form>
   </aside>
 </main>
 <script>
@@ -139,8 +140,19 @@
     const ps = await (await fetch("/api/projects",{cache:"no-store"})).json();
     const me = ps.find(x=>x.name===P); if(me) document.getElementById("br").textContent="⎇ "+me.branch;
   }
-  function tab(m){ mode=m; for(const id of ["analysis","commits","status","files","hyp","judge","brain","plan"]) document.getElementById("t-"+id).classList.toggle("on",id===m); render(); }
+  function tab(m){ mode=m; for(const id of ["analysis","commits","status","files","hyp","judge","brain"]) document.getElementById("t-"+id).classList.toggle("on",id===m); render(); }
   const KCOL={feat:"#3fb950",fix:"#f85149",refactor:"#bc8cff",docs:"#58a6ff",test:"#d29922",perf:"#39c5cf",chore:"#8b949e"};
+  // git log fetch that never lies: returns {commits:[...]} or {err:"..."}.
+  // Server отдаёт массив при успехе и {error:...} при пустом/неизвестном проекте —
+  // не схлопываем обе ветки в один falsy length.
+  async function gitLog(){
+    if(!P) return {err:"проект не выбран (нет ?name= в адресе) — открой проект из списка"};
+    try{
+      const j = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=log",{cache:"no-store"})).json();
+      if(Array.isArray(j)) return {commits:j};
+      return {err:(j&&j.error)?("git: "+j.error):"git-ответ не распознан"};
+    }catch(e){ return {err:"сеть/парсинг: "+e}; }
+  }
   async function render(){
     const L=document.getElementById("left"), C=document.getElementById("center");
     L.style.display=""; // reset visibility from brain mode
@@ -157,7 +169,10 @@
         else C.innerHTML=`<div style="padding:40px;color:var(--mut)">Нет файла graphs/action_graph.html для этого проекта.</div>`;
       }); return; }
     if(mode==="commits"){
-      const cs = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=log",{cache:"no-store"})).json();
+      const g = await gitLog();
+      if(g.err){ C.innerHTML="<p style='color:var(--mut)'>"+esc(g.err)+"</p>"; L.innerHTML=""; return; }
+      const cs = g.commits;
+      if(!cs.length){ C.innerHTML="<p style='color:var(--mut)'>нет коммитов в этом проекте</p>"; L.innerHTML=""; return; }
       const legend = `<div class="legend">
         <span><i style="background:#3fb950"></i>feat</span><span><i style="background:#f85149"></i>fix</span>
         <span><i style="background:#bc8cff"></i>refactor</span><span><i style="background:#58a6ff"></i>docs</span>
@@ -173,8 +188,10 @@
     }
   }
   async function renderAnalysis(L,C){
-    const cs = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=log",{cache:"no-store"})).json();
-    if(!cs.length){ C.innerHTML="<p style='color:var(--mut)'>нет git-данных</p>"; L.innerHTML=""; return; }
+    const g = await gitLog();
+    if(g.err){ C.innerHTML="<p style='color:var(--mut)'>"+esc(g.err)+"</p>"; L.innerHTML=""; return; }
+    const cs = g.commits;
+    if(!cs.length){ C.innerHTML="<p style='color:var(--mut)'>нет коммитов в этом проекте</p>"; L.innerHTML=""; return; }
     let sIns=0,sDel=0,sFiles=0; const byType={};
     cs.forEach(c=>{ sIns+=c.ins||0; sDel+=c.del||0; sFiles+=c.files||0; const k=kindOf(c.subj); byType[k]=(byType[k]||0)+1; });
     const tl=[...cs].reverse(); const maxCh=Math.max(...tl.map(c=>(c.ins||0)+(c.del||0)),1);
@@ -199,25 +216,20 @@
       <div class="bars">${cadBars}</div>
       <h3>распределение по типам</h3>
       <table class="tt"><tr><th>тип</th><th>n</th><th>доля</th></tr>${typeRows}</table>
-      <h3>🧠 рассуждения (живой trace)</h3>
-      <div class="ptrace" id="ptrace"><span style="color:var(--mut)">пока пусто</span></div>
-      <h3>🔴 критик · последний прогон</h3>
-      <div id="critique-box" style="background:#0f1420;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#e6edf3"><span style="color:var(--mut)">нет данных — запусти bin/critic &lt;project&gt;</span></div>`;
+      <h3>🧠 шаги агентов (живой trace)</h3>
+      <div class="ptrace" id="ptrace"><span style="color:var(--mut)">пока пусто</span></div>`;
     L.innerHTML=`<div class="legend">
       <span><i style="background:#3fb950"></i>feat</span><span><i style="background:#f85149"></i>fix</span>
       <span><i style="background:#bc8cff"></i>refactor</span><span><i style="background:#58a6ff"></i>docs</span>
       <span><i style="background:#d29922"></i>test</span><span><i style="background:#8b949e"></i>chore</span></div>
       <p style="color:var(--mut);font-size:12px;padding:6px">Анализ git-истории: метрики, распределения, графики. Рантайм-метрики (FPS/латентность) — позже через БД.</p>`;
     pollPtrace();
-    fetch("/critique",{cache:"no-store"}).then(r=>r.json()).then(d=>{
-      const box=document.getElementById("critique-box");
-      if(box && d.text) box.textContent=d.text;
-    }).catch(()=>{});
   }
   async function pollPtrace(){
     const el=document.getElementById("ptrace"); if(!el) return;
     try{ const a=await (await fetch("/trace",{cache:"no-store"})).json();
-      if(a.length) el.innerHTML=a.slice(-8).map(s=>`<div class="st ${s.kind||'note'}"><span class="k">${s.kind||''}</span> ${esc(s.what||'')}${s.why?`<div class="y">↳ ${esc(s.why)}</div>`:''}</div>`).join("");
+      const MA={claude:"🤖",codex:"⚡",gemini:"✦",openai:"◆"}, MC={claude:"#d97757",codex:"#58a6ff",gemini:"#bc8cff",openai:"#3fb950"};
+      if(a.length) el.innerHTML=a.slice(-8).map(s=>{const m=s.model||"claude";return `<div class="st ${s.kind||'note'}"><span class="k" style="color:${MC[m]||'var(--mut)'}">${MA[m]||""} ${m}</span> <span class="k">${s.kind||''}</span> ${esc(s.what||'')}${s.why?`<div class="y">↳ ${esc(s.why)}</div>`:''}</div>`}).join("");
     }catch(e){}
   }
   function hypCard(h){ const s=h.status||"open";
@@ -280,10 +292,12 @@
     const r = await (await fetch("/api/git?p="+encodeURIComponent(P)+"&what=show&sha="+sha,{cache:"no-store"})).json();
     document.getElementById("center").innerHTML="<h3>дельта коммита "+sha+"</h3><pre>"+colorize(r.text||"")+"</pre>";
   }
-  const _ALIASES={"[is]":"istereolab-sdk","[dt]":"depz-toolkit","[dc]":"depz-camera-sdk","[fw]":"ifirmware-stereocam","[ip]":"iproject_menger"};
+  const _ALIASES={"[is]":"istereolab-sdk","[dt]":"depz-toolkit","[fw]":"ifirmware-stereocam","[ip]":"iproject_menger"};
   const _PHYS_PREFIX="[PHYSICS] K̂→1 · iso-first · S=LOC×churn→min · no-inv · H→0 // ";
   let _physMode=false;
   function _pTogglePhys(){ _physMode=!_physMode; document.getElementById("pbtn").classList.toggle("on",_physMode); }
+  let _codexMode=false;
+  function _pToggleCodex(){ _codexMode=!_codexMode; document.getElementById("pcodex").classList.toggle("on",_codexMode); }
   async function say(t,imgs){ const ia=Array.isArray(imgs)?imgs:(imgs?[imgs]:[]);
     if(!t&&!ia.length)return;
     let proj=P, txt=t;
@@ -291,6 +305,7 @@
       if(t.startsWith(a+" ")||t===a){ proj=full; txt=t.slice(a.length).trim(); break; }
     }
     if(_physMode && txt) txt=_PHYS_PREFIX+txt;
+    if(_codexMode && txt && !/^@\w+/.test(txt)) txt="@codex "+txt;
     try{ let u="/say?text="+encodeURIComponent(txt?"["+proj+"] "+txt:"");
       if(ia.length) u+="&img="+encodeURIComponent(ia.join(","));
       await fetch(u); }catch(e){} }
@@ -390,7 +405,34 @@
     await new Promise(r=>setTimeout(r,50)); // let render() switch the tab first
     openFile(e.data.path);
   });
-  head(); render(); poll(); loadCommands(); pollStatus(); pollActivity(); pollChoices(); setInterval(()=>{poll();pollPtrace();}, 3000);
+  head(); poll(); loadCommands(); pollStatus(); pollActivity(); pollChoices(); setInterval(()=>{poll();pollPtrace();}, 3000);
   setInterval(pollStatus, 1000); setInterval(pollActivity, 1500); setInterval(pollChoices, 1500);
+  // auto-tab/auto-open from URL — runs BEFORE the default render() so it wins the race.
+  (async function(){
+    const params = new URLSearchParams(location.search);
+    const q = params.get("tab");
+    const h = location.hash.replace(/^#/, "");
+    const want = q || h;
+    const known = ["analysis","commits","status","files","hyp","judge","brain"];
+    const file = params.get("file");
+    const sub = params.get("sub");
+    if ((file || sub) && (want === "files" || h === "files")){
+      // direct open: skip default analysis render, go straight to files
+      mode = "files";
+      for (const id of known) document.getElementById("t-"+id).classList.toggle("on", id===mode);
+      if (sub){
+        // sub= → directory browse only, no openFile
+        try { await browse(sub); } catch(_) {}
+      } else {
+        const dir = file.includes("/") ? file.split("/").slice(0, -1).join("/") : "";
+        try { await browse(dir); } catch(_) {}
+        try { await openFile(file); } catch(_) {}
+      }
+      return;
+    }
+    if (want && known.includes(want)) { try { tab(want); } catch(_) {} return; }
+    render();
+  })();
+
 </script>
 </body></html>

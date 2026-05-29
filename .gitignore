@@ -9,3 +9,6 @@ __pycache__/
 
 # local-only Claude permissions / machine state
 /.claude/settings.local.json
+
+# personal per-machine Claude permissions
+.claude/settings.local.json

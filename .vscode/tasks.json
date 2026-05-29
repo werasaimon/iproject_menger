@@ -1,0 +1,132 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "1·server",
+      "type": "shell",
+      "command": "python3 server.py",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "clear": false,
+        "focus": false,
+        "group": "stack"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "2·watch",
+      "type": "shell",
+      "command": "bash bin/watch",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "group": "stack"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "3·transcript",
+      "type": "shell",
+      "command": "python3 bin/transcript_tail.py",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "group": "stack"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "4·embed",
+      "type": "shell",
+      "command": "python3 bin/embed_serve.py",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "group": "stack"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "🤖 Claude",
+      "type": "shell",
+      "command": "claude",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "group": "agents"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "⚡ Codex",
+      "type": "shell",
+      "command": "codex",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "group": "agents"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "✦ Gemini",
+      "type": "shell",
+      "command": "gemini",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "group": "agents"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "◆ GPT-5",
+      "type": "shell",
+      "command": "codex -c model=\"gpt-5\"",
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always",
+        "showReuseMessage": false,
+        "group": "agents"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "▶ servers (4)",
+      "dependsOn": ["1·server", "2·watch", "3·transcript", "4·embed"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "▶ agents (4)",
+      "dependsOn": ["🤖 Claude", "⚡ Codex", "✦ Gemini", "◆ GPT-5"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "▶ ALL (servers + agents)",
+      "dependsOn": [
+        "1·server", "2·watch", "3·transcript", "4·embed",
+        "🤖 Claude", "⚡ Codex", "✦ Gemini", "◆ GPT-5"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}

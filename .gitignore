@@ -6,3 +6,6 @@
 /graphs/
 __pycache__/
 *.pyc
+
+# local-only Claude permissions / machine state
+/.claude/settings.local.json

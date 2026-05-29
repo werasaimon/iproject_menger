@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/wera_n/GIT/iproject_menger/bin/watch-claude"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/wera_n/GIT/iproject_menger/bin/claude_tracer.py"
+          }
+        ]
+      }
+    ]
+  }
+}
